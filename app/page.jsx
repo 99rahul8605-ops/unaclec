@@ -24,6 +24,7 @@ import {
   Sparkles,
   Video
 } from "lucide-react";
+import CustomVideoPlayer from "../components/CustomVideoPlayer";
 
 import ClassSlides from "../components/ClassSlides";
 import PlayerTools from "../components/PlayerTools";
@@ -926,14 +927,14 @@ export default function HomePage() {
                             <p>{playbackError}</p>
                           </div>
                         ) : playbackUrl ? (
-                          <video
+                          <CustomVideoPlayer
                             key={`${selectedLecture.id}:${playbackUrl}`}
-                            ref={videoRef}
+                            videoRef={videoRef}
+                            lectureId={selectedLecture.id}
+                            showSlides={isFoundationPlaybackBatch(selectedBatch)}
                             src={playbackUrl}
-                            controls
                             playsInline
                             preload="metadata"
-                            controlsList="nodownload"
                             disablePictureInPicture
                             onLoadedMetadata={(event) => {
                               const resume =
@@ -1001,12 +1002,7 @@ export default function HomePage() {
                               currentPosition + 1}
                           </p>
                         </div>
-                        <PlayerTools
-                          videoRef={videoRef}
-                          playbackUrl={playbackUrl}
-                          lectureId={selectedLecture.id}
-                          enabled={isFoundationPlaybackBatch(selectedBatch)}
-                        />
+                        
 
 
 
