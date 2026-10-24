@@ -53,6 +53,79 @@ export default function CustomVideoPlayer({
   const [playing, setPlaying] = useState(false);
   const [boardReady, setBoardReady] = useState(false);
   const [cameraVisible, setCameraVisible] = useState(true);
+  // TEACHER_CAM_DRAG_V3
+  const [teacherCamPos, setTeacherCamPos] = useState({
+    x: 70,
+    y: 6
+  });
+
+  const teacherDragRef = useRef(null);
+
+  function teacherDragStart(e) {
+    if (!boardReady || !cameraVisible) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    teacherDragRef.current = {
+      pointerId: e.pointerId,
+      clientX: e.clientX,
+      clientY: e.clientY,
+      x: teacherCamPos.x,
+      y: teacherCamPos.y
+    };
+
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {}
+  }
+
+  function teacherDragMove(e) {
+    const drag = teacherDragRef.current;
+    const box = playerRef.current;
+
+    if (
+      !drag ||
+      !box ||
+      drag.pointerId !== e.pointerId
+    ) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    const w = box.offsetWidth;
+    const h = box.offsetHeight;
+
+    if (!w || !h) return;
+
+    const screenX = e.clientX - drag.clientX;
+    const screenY = e.clientY - drag.clientY;
+
+    // Convert screen movement into player coordinates
+    // when landscape is using CSS rotate(90deg).
+    const localX = landscape ? screenY : screenX;
+    const localY = landscape ? -screenX : screenY;
+
+    const x = drag.x + (localX / w) * 100;
+    const y = drag.y + (localY / h) * 100;
+
+    // Camera occupies 27% width, 27% height
+    // when player aspect ratio is 16:9.
+    setTeacherCamPos({
+      x: Math.max(0, Math.min(73, x)),
+      y: Math.max(0, Math.min(73, y))
+    });
+  }
+
+  function teacherDragEnd(e) {
+    if (
+      teacherDragRef.current?.pointerId === e.pointerId
+    ) {
+      teacherDragRef.current = null;
+      e.stopPropagation();
+    }
+  }
+
   const [duration, setDuration] = useState(0);
   const [current, setCurrent] = useState(0);
   const [muted, setMuted] = useState(false);
@@ -183,10 +256,11 @@ export default function CustomVideoPlayer({
     if (mode === "landscape") {
       Object.assign(wrapper.style, {
         position: "fixed",
-        top: "0",
-        left: "100vw",
-        width: "100dvh",
-        height: "100dvw",
+        top: "calc((100dvh - min(100dvh, 177.7778dvw)) / 2)",
+        left: "calc((100dvw + min(56.25dvh, 100dvw)) / 2)",
+        width: "min(100dvh, 177.7778dvw)",
+        height: "min(56.25dvh, 100dvw)",
+        aspectRatio: "16 / 9",
         maxWidth: "none",
         maxHeight: "none",
         borderRadius: "0",
@@ -297,7 +371,8 @@ export default function CustomVideoPlayer({
             onClick={() => setCameraVisible((v) => !v)}
             style={{
               position: "absolute",
-              top: 8,
+              top: expanded ? "auto" : 8,
+              bottom: expanded ? 58 : "auto",
               left: 8,
               zIndex: 10,
               border: 0,
@@ -357,11 +432,10 @@ export default function CustomVideoPlayer({
           onError={onError}
           style={{
             position: boardReady ? "absolute" : "relative",
-            bottom: boardReady ? "9%" : "auto",
-            right: boardReady ? "3%" : "auto",
+            top: boardReady ? `${teacherCamPos.y}%` : 0,
+            left: boardReady ? `${teacherCamPos.x}%` : 0,
             width: boardReady ? "27%" : "100%",
-            height: boardReady ? "auto" : "100%",
-            aspectRatio: boardReady ? "16 / 9" : undefined,
+            height: boardReady ? "27%" : "100%",
             display: "block",
             opacity: boardReady && !cameraVisible ? 0 : 1,
             objectFit: "contain",
@@ -369,11 +443,53 @@ export default function CustomVideoPlayer({
             border: boardReady && cameraVisible
               ? "2px solid #fff"
               : "none",
+            boxSizing: "border-box",
             borderRadius: boardReady ? 6 : 0,
             zIndex: boardReady ? 3 : 0,
             pointerEvents: "none"
           }}
         />
+
+        {boardReady && cameraVisible && (
+          <div
+            onPointerDown={teacherDragStart}
+            onPointerMove={teacherDragMove}
+            onPointerUp={teacherDragEnd}
+            onPointerCancel={teacherDragEnd}
+            onClick={(e) => e.stopPropagation()}
+            title="Drag teacher camera"
+            style={{
+              position: "absolute",
+              top: `${teacherCamPos.y}%`,
+              left: `${teacherCamPos.x}%`,
+              width: "27%",
+              height: "27%",
+              zIndex: 4,
+              touchAction: "none",
+              cursor: "grab",
+              userSelect: "none",
+              WebkitUserSelect: "none"
+            }}
+          >
+            {controlsVisible && (
+              <span
+                style={{
+                  position: "absolute",
+                  top: 3,
+                  left: 3,
+                  background: "rgba(0,0,0,.7)",
+                  borderRadius: 5,
+                  padding: "2px 5px",
+                  fontSize: 10,
+                  color: "white",
+                  pointerEvents: "none"
+                }}
+              >
+                ↔ Move
+              </span>
+            )}
+          </div>
+        )}
 
         <button
           type="button"
