@@ -61,10 +61,15 @@ export default function CustomVideoPlayer({
     e.preventDefault();
     e.stopPropagation();
 
+    const wrapper = playerRef.current;
+    if (!wrapper) return;
+
     dragRef.current = {
-      x: e.clientX,
-      y: e.clientY,
-      position: { ...camPos }
+      pointerId: e.pointerId,
+      clientX: e.clientX,
+      clientY: e.clientY,
+      startX: camPos.x,
+      startY: camPos.y
     };
 
     e.currentTarget.setPointerCapture?.(e.pointerId);
@@ -73,56 +78,38 @@ export default function CustomVideoPlayer({
   function moveCam(e) {
     const drag = dragRef.current;
     const wrapper = playerRef.current;
-    if (!drag || !wrapper) return;
 
-    const rect = wrapper.getBoundingClientRect();
-    if (!rect.width || !rect.height) return;
+    if (!drag || !wrapper ||
+        drag.pointerId !== e.pointerId) return;
 
-    const dx = 100 * (e.clientX - drag.x) / rect.width;
-    const dy = 100 * (e.clientY - drag.y) / rect.height;
+    e.preventDefault();
+    e.stopPropagation();
+
+    const width = wrapper.offsetWidth;
+    const height = wrapper.offsetHeight;
+    if (!width || !height) return;
+
+    const screenDX = e.clientX - drag.clientX;
+    const screenDY = e.clientY - drag.clientY;
+
+    const localDX = landscape ? screenDY : screenDX;
+    const localDY = landscape ? -screenDX : screenDY;
+
+    const x = drag.startX + 100 * localDX / width;
+    const y = drag.startY + 100 * localDY / height;
 
     setCamPos({
-      x: Math.max(0, Math.min(72, drag.position.x + dx)),
-      y: Math.max(0, Math.min(78, drag.position.y + dy))
+      x: Math.max(0, Math.min(72, x)),
+      y: Math.max(0, Math.min(72, y))
     });
   }
 
-  const [duration, setDuration] = useState(0);
-  const [current, setCurrent] = useState(0);
-  const [muted, setMuted] = useState(false);
-  const [speed, setSpeed] = useState(1);
-  const [controlsVisible, setControlsVisible] = useState(true);
-  const [landscape, setLandscape] = useState(false);
-  const [fullscreen, setFullscreen] = useState(false);
-  const [slidesOpen, setSlidesOpen] = useState(false);
-  const [message, setMessage] = useState("");
-
-  const video = () => videoRef?.current || fallbackRef.current;
-
-  const restoreLayout = useCallback(() => {
-    if (restoreRef.current) {
-      restoreRef.current();
-      restoreRef.current = null;
+  function stopCamDrag(e) {
+    if (dragRef.current?.pointerId === e.pointerId) {
+      dragRef.current = null;
+      e.stopPropagation();
     }
-
-    setLandscape(false);
-    setFullscreen(false);
-    setControlsVisible(true);
-  }, []);
-
-  const scheduleHide = useCallback(() => {
-    if (hideTimerRef.current) {
-      clearTimeout(hideTimerRef.current);
-    }
-
-    hideTimerRef.current = setTimeout(() => {
-      const el = videoRef?.current || fallbackRef.current;
-
-      if (el && !el.paused) {
-        setControlsVisible(false);
-      }
-    }, 3000);
-  }, [videoRef]);
+  }
 
   function revealControls() {
     setControlsVisible(true);
@@ -392,8 +379,8 @@ export default function CustomVideoPlayer({
           <div
             onPointerDown={startCamDrag}
             onPointerMove={moveCam}
-            onPointerUp={() => { dragRef.current = null; }}
-            onPointerCancel={() => { dragRef.current = null; }}
+            onPointerUp={stopCamDrag}
+            onPointerCancel={stopCamDrag}
             style={{
               position: "absolute",
               top: `${camPos.y}%`,
