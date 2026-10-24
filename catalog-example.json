@@ -1,0 +1,49 @@
+
+{
+  "batches": [
+    {
+      "id": "ca-intermediate-2027",
+      "name": "CA Intermediate — 2027",
+      "description": "Complete CA Intermediate lectures",
+      "published": true,
+      "subjects": [
+        {
+          "id": "advanced-accounting",
+          "name": "Advanced Accounting",
+          "lectures": [
+            {
+              "id": "inventory-l1",
+              "name": "Inventory Valuation L1",
+              "class_number": 1,
+              "duration": 3600,
+              "stream_url": "",
+              "notes_url": ""
+            },
+            {
+              "id": "inventory-l2",
+              "name": "Inventory Valuation L2",
+              "class_number": 2,
+              "duration": 3600,
+              "stream_url": "",
+              "notes_url": ""
+            }
+          ]
+        },
+        {
+          "id": "corporate-laws",
+          "name": "Corporate Laws",
+          "lectures": [
+            {
+              "id": "general-clauses-l1",
+              "name": "General Clauses Act — Lecture 1",
+              "class_number": 1,
+              "duration": 0,
+              "stream_url": "",
+              "notes_url": ""
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
