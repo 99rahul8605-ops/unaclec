@@ -18,6 +18,7 @@ import {
   X
 } from "lucide-react";
 import ClassSlides from "./ClassSlides";
+import SyncedBoard from "./SyncedBoard";
 
 const SPEEDS = [0.75, 1, 1.25, 1.5, 2];
 
@@ -50,6 +51,8 @@ export default function CustomVideoPlayer({
   const restoreRef = useRef(null);
 
   const [playing, setPlaying] = useState(false);
+  const [boardReady, setBoardReady] = useState(false);
+  const [cameraVisible, setCameraVisible] = useState(true);
   const [duration, setDuration] = useState(0);
   const [current, setCurrent] = useState(0);
   const [muted, setMuted] = useState(false);
@@ -279,6 +282,36 @@ export default function CustomVideoPlayer({
           isolation: "isolate"
         }}
       >
+        {showSlides && (
+          <SyncedBoard
+            lectureId={lectureId}
+            playbackUrl={src}
+            videoRef={videoRef || fallbackRef}
+            onReady={setBoardReady}
+          />
+        )}
+
+        {boardReady && (
+          <button
+            type="button"
+            onClick={() => setCameraVisible((v) => !v)}
+            style={{
+              position: "absolute",
+              top: 8,
+              left: 8,
+              zIndex: 10,
+              border: 0,
+              borderRadius: 8,
+              padding: "6px 10px",
+              color: "#fff",
+              background: "rgba(0,0,0,.8)",
+              fontSize: 12
+            }}
+          >
+            {cameraVisible ? "Hide Cam" : "Show Cam"}
+          </button>
+        )}
+
         <video
           {...rest}
           ref={(node) => {
@@ -323,11 +356,22 @@ export default function CustomVideoPlayer({
           }}
           onError={onError}
           style={{
-            width: "100%",
-            height: "100%",
+            position: boardReady ? "absolute" : "relative",
+            bottom: boardReady ? "9%" : "auto",
+            right: boardReady ? "3%" : "auto",
+            width: boardReady ? "27%" : "100%",
+            height: boardReady ? "auto" : "100%",
+            aspectRatio: boardReady ? "16 / 9" : undefined,
             display: "block",
+            opacity: boardReady && !cameraVisible ? 0 : 1,
             objectFit: "contain",
-            background: "#000"
+            background: "#000",
+            border: boardReady && cameraVisible
+              ? "2px solid #fff"
+              : "none",
+            borderRadius: boardReady ? 6 : 0,
+            zIndex: boardReady ? 3 : 0,
+            pointerEvents: "none"
           }}
         />
 
