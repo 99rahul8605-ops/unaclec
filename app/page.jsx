@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 
 import ClassSlides from "../components/ClassSlides";
+import PlayerTools from "../components/PlayerTools";
 
 function progressKey(batchId, subjectId, lectureId) {
   return `${batchId}|${subjectId}|${lectureId}`;
@@ -955,33 +956,14 @@ export default function HomePage() {
                               currentPosition + 1}
                           </p>
                         </div>
+                        <PlayerTools
+                          videoRef={videoRef}
+                          playbackUrl={playbackUrl}
+                          lectureId={selectedLecture.id}
+                          enabled={isFoundationPlaybackBatch(selectedBatch)}
+                        />
 
-                        <div
-                          style={{
-                            display: "flex",
-                            gap: 8,
-                            flexWrap: "wrap",
-                            marginTop: 12
-                          }}
-                        >
-                          <button
-                            type="button"
-                            className="primary-button"
-                            disabled={!playbackUrl}
-                            onClick={() => openFullscreen(false)}
-                          >
-                            Fullscreen
-                          </button>
 
-                          <button
-                            type="button"
-                            className="primary-button"
-                            disabled={!playbackUrl}
-                            onClick={() => openFullscreen(true)}
-                          >
-                            Landscape
-                          </button>
-                        </div>
 
                         <button
                           className="primary-button"
