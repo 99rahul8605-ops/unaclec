@@ -18,6 +18,7 @@ import {
   X
 } from "lucide-react";
 import ClassSlides from "./ClassSlides";
+import SyncedBoard from "./SyncedBoard";
 
 const SPEEDS = [0.75, 1, 1.25, 1.5, 2];
 
@@ -50,6 +51,42 @@ export default function CustomVideoPlayer({
   const restoreRef = useRef(null);
 
   const [playing, setPlaying] = useState(false);
+  const [boardReady, setBoardReady] = useState(false);
+  const [camVisible, setCamVisible] = useState(true);
+  const [camPos, setCamPos] = useState({x: 69, y: 8});
+  const dragRef = useRef(null);
+
+  function startCamDrag(e) {
+    if (!boardReady) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    dragRef.current = {
+      x: e.clientX,
+      y: e.clientY,
+      position: { ...camPos }
+    };
+
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+  }
+
+  function moveCam(e) {
+    const drag = dragRef.current;
+    const wrapper = playerRef.current;
+    if (!drag || !wrapper) return;
+
+    const rect = wrapper.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+
+    const dx = 100 * (e.clientX - drag.x) / rect.width;
+    const dy = 100 * (e.clientY - drag.y) / rect.height;
+
+    setCamPos({
+      x: Math.max(0, Math.min(72, drag.position.x + dx)),
+      y: Math.max(0, Math.min(78, drag.position.y + dy))
+    });
+  }
+
   const [duration, setDuration] = useState(0);
   const [current, setCurrent] = useState(0);
   const [muted, setMuted] = useState(false);
@@ -109,6 +146,9 @@ export default function CustomVideoPlayer({
     restoreLayout();
     setSlidesOpen(false);
     setPlaying(false);
+    setBoardReady(false);
+    setCamVisible(true);
+    setCamPos({x: 69, y: 8});
     setDuration(0);
     setCurrent(0);
     setSpeed(1);
@@ -279,6 +319,15 @@ export default function CustomVideoPlayer({
           isolation: "isolate"
         }}
       >
+        {showSlides && (
+          <SyncedBoard
+            lectureId={lectureId}
+            playbackUrl={src}
+            videoRef={videoRef || fallbackRef}
+            onReady={setBoardReady}
+          />
+        )}
+
         <video
           {...rest}
           ref={(node) => {
@@ -323,13 +372,56 @@ export default function CustomVideoPlayer({
           }}
           onError={onError}
           style={{
-            width: "100%",
-            height: "100%",
-            display: "block",
+            position: boardReady ? "absolute" : "relative",
+            top: boardReady ? `${camPos.y}%` : 0,
+            left: boardReady ? `${camPos.x}%` : 0,
+            width: boardReady ? "28%" : "100%",
+            height: boardReady ? "auto" : "100%",
+            aspectRatio: boardReady ? "16 / 9" : undefined,
+            display: boardReady && !camVisible ? "none" : "block",
             objectFit: "contain",
-            background: "#000"
+            background: "#000",
+            zIndex: boardReady ? 3 : 0,
+            border: boardReady ? "2px solid #fff" : "none",
+            borderRadius: boardReady ? 8 : 0,
+            pointerEvents: "none"
           }}
         />
+
+        {boardReady && camVisible && (
+          <div
+            onPointerDown={startCamDrag}
+            onPointerMove={moveCam}
+            onPointerUp={() => { dragRef.current = null; }}
+            onPointerCancel={() => { dragRef.current = null; }}
+            style={{
+              position: "absolute",
+              top: `${camPos.y}%`,
+              left: `${camPos.x}%`,
+              width: "28%",
+              aspectRatio: "16 / 9",
+              zIndex: 4,
+              cursor: "move",
+              touchAction: "none",
+              border: "2px solid transparent",
+              borderRadius: 8
+            }}
+            title="Drag to move teacher camera"
+          >
+            <span style={{
+              position: "absolute",
+              top: 2,
+              left: 3,
+              background: "rgba(0,0,0,.7)",
+              color: "white",
+              borderRadius: 5,
+              fontSize: 10,
+              padding: "2px 5px"
+            }}>
+              ↔ Move
+            </span>
+          </div>
+        )}
 
         <button
           type="button"
@@ -450,6 +542,20 @@ export default function CustomVideoPlayer({
                   : <Volume2 size={17} />}
               </button>
 
+              {boardReady && (
+                <button
+                  type="button"
+                  style={buttonStyle}
+                  onClick={() => {
+                    setCamVisible(v => !v);
+                    revealControls();
+                  }}
+                  aria-label={camVisible ? "Hide teacher" : "Show teacher"}
+                >
+                  {camVisible ? "Cam ✕" : "Cam ✓"}
+                </button>
+              )}
+
               <button
                 type="button"
                 style={buttonStyle}
@@ -501,24 +607,7 @@ export default function CustomVideoPlayer({
           </div>
         )}
 
-        {expanded && controlsVisible && (
-          <button
-            type="button"
-            onClick={restoreLayout}
-            aria-label="Exit landscape or fullscreen"
-            style={{
-              ...buttonStyle,
-              position: "absolute",
-              top: 12,
-              right: 12,
-              zIndex: 8,
-              borderRadius: 100,
-              background: "rgba(0,0,0,0.65)"
-            }}
-          >
-            <X size={19} />
-          </button>
-        )}
+
       </div>
 
       {message && (
