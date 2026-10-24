@@ -1,0 +1,21 @@
+
+{
+  "name": "lecture-manager-miniapp",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
+  },
+  "dependencies": {
+    "next": "15.5.12",
+    "react": "19.1.1",
+    "react-dom": "19.1.1",
+    "mongodb": "^6.20.0",
+    "lucide-react": "^0.468.0"
+  },
+  "engines": {
+    "node": ">=20.9.0"
+  }
+}
