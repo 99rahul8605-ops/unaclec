@@ -7,7 +7,7 @@ import {
   useRef,
   useState
 } from "react";
-
+import LectureViewport from "../components/LectureViewport";
 import {
   ArrowLeft,
   BookOpen,
