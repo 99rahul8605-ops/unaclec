@@ -18,7 +18,6 @@ import {
   X
 } from "lucide-react";
 import ClassSlides from "./ClassSlides";
-import SyncedBoard from "./SyncedBoard";
 
 const SPEEDS = [0.75, 1, 1.25, 1.5, 2];
 
@@ -51,65 +50,42 @@ export default function CustomVideoPlayer({
   const restoreRef = useRef(null);
 
   const [playing, setPlaying] = useState(false);
-  const [boardReady, setBoardReady] = useState(false);
-  const [camVisible, setCamVisible] = useState(true);
-  const [camPos, setCamPos] = useState({x: 69, y: 8});
-  const dragRef = useRef(null);
+  const [duration, setDuration] = useState(0);
+  const [current, setCurrent] = useState(0);
+  const [muted, setMuted] = useState(false);
+  const [speed, setSpeed] = useState(1);
+  const [controlsVisible, setControlsVisible] = useState(true);
+  const [landscape, setLandscape] = useState(false);
+  const [fullscreen, setFullscreen] = useState(false);
+  const [slidesOpen, setSlidesOpen] = useState(false);
+  const [message, setMessage] = useState("");
 
-  function startCamDrag(e) {
-    if (!boardReady) return;
-    e.preventDefault();
-    e.stopPropagation();
+  const video = () => videoRef?.current || fallbackRef.current;
 
-    const wrapper = playerRef.current;
-    if (!wrapper) return;
-
-    dragRef.current = {
-      pointerId: e.pointerId,
-      clientX: e.clientX,
-      clientY: e.clientY,
-      startX: camPos.x,
-      startY: camPos.y
-    };
-
-    e.currentTarget.setPointerCapture?.(e.pointerId);
-  }
-
-  function moveCam(e) {
-    const drag = dragRef.current;
-    const wrapper = playerRef.current;
-
-    if (!drag || !wrapper ||
-        drag.pointerId !== e.pointerId) return;
-
-    e.preventDefault();
-    e.stopPropagation();
-
-    const width = wrapper.offsetWidth;
-    const height = wrapper.offsetHeight;
-    if (!width || !height) return;
-
-    const screenDX = e.clientX - drag.clientX;
-    const screenDY = e.clientY - drag.clientY;
-
-    const localDX = landscape ? screenDY : screenDX;
-    const localDY = landscape ? -screenDX : screenDY;
-
-    const x = drag.startX + 100 * localDX / width;
-    const y = drag.startY + 100 * localDY / height;
-
-    setCamPos({
-      x: Math.max(0, Math.min(72, x)),
-      y: Math.max(0, Math.min(72, y))
-    });
-  }
-
-  function stopCamDrag(e) {
-    if (dragRef.current?.pointerId === e.pointerId) {
-      dragRef.current = null;
-      e.stopPropagation();
+  const restoreLayout = useCallback(() => {
+    if (restoreRef.current) {
+      restoreRef.current();
+      restoreRef.current = null;
     }
-  }
+
+    setLandscape(false);
+    setFullscreen(false);
+    setControlsVisible(true);
+  }, []);
+
+  const scheduleHide = useCallback(() => {
+    if (hideTimerRef.current) {
+      clearTimeout(hideTimerRef.current);
+    }
+
+    hideTimerRef.current = setTimeout(() => {
+      const el = videoRef?.current || fallbackRef.current;
+
+      if (el && !el.paused) {
+        setControlsVisible(false);
+      }
+    }, 3000);
+  }, [videoRef]);
 
   function revealControls() {
     setControlsVisible(true);
@@ -133,9 +109,6 @@ export default function CustomVideoPlayer({
     restoreLayout();
     setSlidesOpen(false);
     setPlaying(false);
-    setBoardReady(false);
-    setCamVisible(true);
-    setCamPos({x: 69, y: 8});
     setDuration(0);
     setCurrent(0);
     setSpeed(1);
@@ -207,11 +180,10 @@ export default function CustomVideoPlayer({
     if (mode === "landscape") {
       Object.assign(wrapper.style, {
         position: "fixed",
-        top: "calc((100dvh - min(100dvh, 177.7778dvw)) / 2)",
-        left: "calc((100dvw + min(56.25dvh, 100dvw)) / 2)",
-        width: "min(100dvh, 177.7778dvw)",
-        height: "min(56.25dvh, 100dvw)",
-        aspectRatio: "16 / 9",
+        top: "0",
+        left: "100vw",
+        width: "100dvh",
+        height: "100dvw",
         maxWidth: "none",
         maxHeight: "none",
         borderRadius: "0",
@@ -227,10 +199,8 @@ export default function CustomVideoPlayer({
       Object.assign(wrapper.style, {
         position: "fixed",
         inset: "0",
-        margin: "auto",
-        width: "min(100vw, 177.7778dvh)",
-        height: "min(56.25dvw, 100dvh)",
-        aspectRatio: "16 / 9",
+        width: "100vw",
+        height: "100dvh",
         maxWidth: "none",
         maxHeight: "none",
         borderRadius: "0",
@@ -309,15 +279,6 @@ export default function CustomVideoPlayer({
           isolation: "isolate"
         }}
       >
-        {showSlides && (
-          <SyncedBoard
-            lectureId={lectureId}
-            playbackUrl={src}
-            videoRef={videoRef || fallbackRef}
-            onReady={setBoardReady}
-          />
-        )}
-
         <video
           {...rest}
           ref={(node) => {
@@ -362,56 +323,13 @@ export default function CustomVideoPlayer({
           }}
           onError={onError}
           style={{
-            position: boardReady ? "absolute" : "relative",
-            top: boardReady ? `${camPos.y}%` : 0,
-            left: boardReady ? `${camPos.x}%` : 0,
-            width: boardReady ? "28%" : "100%",
-            height: boardReady ? "auto" : "100%",
-            aspectRatio: boardReady ? "16 / 9" : undefined,
-            display: boardReady && !camVisible ? "none" : "block",
+            width: "100%",
+            height: "100%",
+            display: "block",
             objectFit: "contain",
-            background: "#000",
-            zIndex: boardReady ? 3 : 0,
-            border: boardReady ? "2px solid #fff" : "none",
-            borderRadius: boardReady ? 8 : 0,
-            pointerEvents: "none"
+            background: "#000"
           }}
         />
-
-        {boardReady && camVisible && (
-          <div
-            onPointerDown={startCamDrag}
-            onPointerMove={moveCam}
-            onPointerUp={stopCamDrag}
-            onPointerCancel={stopCamDrag}
-            style={{
-              position: "absolute",
-              top: `${camPos.y}%`,
-              left: `${camPos.x}%`,
-              width: "28%",
-              aspectRatio: "16 / 9",
-              zIndex: 4,
-              cursor: "move",
-              touchAction: "none",
-              border: "2px solid transparent",
-              borderRadius: 8
-            }}
-            title="Drag to move teacher camera"
-          >
-            <span style={{
-              position: "absolute",
-              top: 2,
-              left: 3,
-              background: "rgba(0,0,0,.7)",
-              color: "white",
-              borderRadius: 5,
-              fontSize: 10,
-              padding: "2px 5px"
-            }}>
-              ↔ Move
-            </span>
-          </div>
-        )}
 
         <button
           type="button"
@@ -532,20 +450,6 @@ export default function CustomVideoPlayer({
                   : <Volume2 size={17} />}
               </button>
 
-              {boardReady && (
-                <button
-                  type="button"
-                  style={buttonStyle}
-                  onClick={() => {
-                    setCamVisible(v => !v);
-                    revealControls();
-                  }}
-                  aria-label={camVisible ? "Hide teacher" : "Show teacher"}
-                >
-                  {camVisible ? "Cam ✕" : "Cam ✓"}
-                </button>
-              )}
-
               <button
                 type="button"
                 style={buttonStyle}
@@ -597,7 +501,24 @@ export default function CustomVideoPlayer({
           </div>
         )}
 
-
+        {expanded && controlsVisible && (
+          <button
+            type="button"
+            onClick={restoreLayout}
+            aria-label="Exit landscape or fullscreen"
+            style={{
+              ...buttonStyle,
+              position: "absolute",
+              top: 12,
+              right: 12,
+              zIndex: 8,
+              borderRadius: 100,
+              background: "rgba(0,0,0,0.65)"
+            }}
+          >
+            <X size={19} />
+          </button>
+        )}
       </div>
 
       {message && (
