@@ -151,12 +151,27 @@ export async function POST(request) {
       ok: true,
       imported: batches.length
     });
-  } catch (error) {
-    console.error("Catalog import:", error);
+    } catch (error) {
+    console.error("CATALOG_IMPORT_FAILED", {
+      name: error.name,
+      message: error.message,
+      code: error.code
+    });
+
+    const databaseError =
+      error.name?.startsWith("Mongo") ||
+      error.name === "MongoServerSelectionError";
 
     return Response.json(
-      { error: "Import failed: invalid data or database error." },
-      { status: 400 }
+      {
+        error: databaseError
+          ? "MongoDB connection or permission failed."
+          : "Invalid catalog data.",
+        type: error.name,
+        details: databaseError
+          ? "Check Vercel runtime logs for MongoDB details."
+          : error.message
+      },
+      { status: databaseError ? 503 : 400 }
     );
   }
-}
