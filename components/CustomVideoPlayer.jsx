@@ -612,6 +612,53 @@ export default function CustomVideoPlayer({
 
               <button
                 type="button"
+                style={{
+                  ...buttonStyle,
+                  minWidth: 34,
+                  padding: "7px 5px"
+                }}
+                aria-label="Seek backward 10 seconds"
+                onClick={() => {
+                  const el = video();
+                  if (!el) return;
+                  el.currentTime = Math.max(
+                    0,
+                    (el.currentTime || 0) - 10
+                  );
+                  revealControls();
+                }}
+              >
+                −10s
+              </button>
+
+              <button
+                type="button"
+                style={{
+                  ...buttonStyle,
+                  minWidth: 34,
+                  padding: "7px 5px"
+                }}
+                aria-label="Seek forward 10 seconds"
+                onClick={() => {
+                  const el = video();
+                  if (!el) return;
+
+                  const target = (el.currentTime || 0) + 10;
+
+                  el.currentTime =
+                    Number.isFinite(el.duration) &&
+                    el.duration > 0
+                      ? Math.min(el.duration, target)
+                      : target;
+
+                  revealControls();
+                }}
+              >
+                +10s
+              </button>
+
+              <button
+                type="button"
                 style={buttonStyle}
                 onClick={changeSpeed}
                 aria-label="Change playback speed"
