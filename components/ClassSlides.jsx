@@ -94,6 +94,7 @@ export default function ClassSlides({
           `/slides/${encodeURIComponent(lectureId)}/manifest`;
 
         const response = await fetch(base.toString(), {
+          credentials: "include",
           cache: "no-store"
         });
 
@@ -148,6 +149,7 @@ export default function ClassSlides({
           `/slides/${encodeURIComponent(lectureId)}/board`;
 
         const response = await fetch(url.toString(), {
+          credentials: "include",
           cache: "no-store"
         });
 

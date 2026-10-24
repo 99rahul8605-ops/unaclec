@@ -363,6 +363,7 @@ function createEngine(events, images) {
 function loadImage(url) {
   return new Promise((resolve) => {
     const img = new Image();
+    img.crossOrigin = "use-credentials";
 
     img.onload = () => resolve(img);
     img.onerror = () => resolve(null);
@@ -408,8 +409,8 @@ export default function SyncedBoard({
           `${encodeURIComponent(lectureId)}/manifest${query}`;
 
         const [boardResult, manifestResult] = await Promise.all([
-          fetch(boardURL, { cache: "no-store" }),
-          fetch(manifestURL, { cache: "no-store" }),
+          fetch(boardURL, { cache: "no-store", credentials: "include" }),
+          fetch(manifestURL, { cache: "no-store", credentials: "include" }),
         ]);
 
         if (!boardResult.ok) {
