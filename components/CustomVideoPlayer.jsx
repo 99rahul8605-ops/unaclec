@@ -207,10 +207,11 @@ export default function CustomVideoPlayer({
     if (mode === "landscape") {
       Object.assign(wrapper.style, {
         position: "fixed",
-        top: "0",
-        left: "100vw",
-        width: "100dvh",
-        height: "100dvw",
+        top: "calc((100dvh - min(100dvh, 177.7778dvw)) / 2)",
+        left: "calc((100dvw + min(56.25dvh, 100dvw)) / 2)",
+        width: "min(100dvh, 177.7778dvw)",
+        height: "min(56.25dvh, 100dvw)",
+        aspectRatio: "16 / 9",
         maxWidth: "none",
         maxHeight: "none",
         borderRadius: "0",
@@ -226,8 +227,10 @@ export default function CustomVideoPlayer({
       Object.assign(wrapper.style, {
         position: "fixed",
         inset: "0",
-        width: "100vw",
-        height: "100dvh",
+        margin: "auto",
+        width: "min(100vw, 177.7778dvh)",
+        height: "min(56.25dvw, 100dvh)",
+        aspectRatio: "16 / 9",
         maxWidth: "none",
         maxHeight: "none",
         borderRadius: "0",
