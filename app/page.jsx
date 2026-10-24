@@ -406,6 +406,40 @@ export default function HomePage() {
           throw new Error("Streaming URL was not returned.");
         }
 
+
+        if (!result.session_ticket) {
+          throw new Error("Private playback ticket missing");
+        }
+
+        const streamOrigin = new URL(result.url).origin;
+
+        if (streamOrigin !== "https://stream.bingolink.site") {
+          throw new Error(
+            "STREAM_ORIGIN must use stream.bingolink.site"
+          );
+        }
+
+        const sessionResponse = await fetch(
+          `${streamOrigin}/session/bootstrap`,
+          {
+            method: "POST",
+            credentials: "include",
+            headers: {
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              ticket: result.session_ticket
+            }),
+            cache: "no-store"
+          }
+        );
+
+        if (!sessionResponse.ok) {
+          throw new Error(
+            `Private session failed (${sessionResponse.status})`
+          );
+        }
+
         if (!cancelled) {
           setPlaybackUrl(result.url);
           setPlaybackError("");
@@ -933,6 +967,7 @@ export default function HomePage() {
                             lectureId={selectedLecture.id}
                             showSlides={isFoundationPlaybackBatch(selectedBatch)}
                             src={playbackUrl}
+                            crossOrigin="use-credentials"
                             playsInline
                             preload="metadata"
                             disablePictureInPicture

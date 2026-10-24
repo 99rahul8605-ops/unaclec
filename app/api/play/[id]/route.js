@@ -143,10 +143,32 @@ export async function POST(request, context) {
       `${origin}/video/${encodeURIComponent(id)}` +
       `?exp=${expiry}&sig=${signature}`;
 
+
+    const ticketExpiry = Math.floor(Date.now() / 1000) + 90;
+
+    const sessionPayload = {
+      uid: String(user.id),
+      lecture: id,
+      exp: ticketExpiry,
+      nonce: crypto.randomBytes(24).toString("hex")
+    };
+
+    const encoded = Buffer.from(
+      JSON.stringify(sessionPayload)
+    ).toString("base64url");
+
+    const ticketSignature = crypto
+      .createHmac("sha256", secret)
+      .update("session-ticket:" + encoded)
+      .digest("hex");
+
+    const ticket = `${encoded}.${ticketSignature}`;
+
     return json({
       ok: true,
       url,
-      expires_at: expiry
+      expires_at: expiry,
+      session_ticket: ticket
     });
   } catch (error) {
     console.error("Playback API error:", error);
