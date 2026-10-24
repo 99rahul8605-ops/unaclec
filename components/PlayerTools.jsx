@@ -12,53 +12,54 @@ export default function PlayerTools({
   const [landscape, setLandscape] = useState(false);
   const [slidesOpen, setSlidesOpen] = useState(false);
   const [message, setMessage] = useState("");
-  const cleanupRef = useRef(null);
 
-  function leaveLandscape() {
-    if (cleanupRef.current) {
-      cleanupRef.current();
-      cleanupRef.current = null;
+  const restoreRef = useRef(null);
+
+  function exitLandscape() {
+    if (restoreRef.current) {
+      restoreRef.current();
+      restoreRef.current = null;
     }
+
     setLandscape(false);
     setMessage("");
   }
 
   useEffect(() => {
     return () => {
-      if (cleanupRef.current) cleanupRef.current();
+      if (restoreRef.current) {
+        restoreRef.current();
+        restoreRef.current = null;
+      }
     };
   }, []);
 
   useEffect(() => {
-    leaveLandscape();
+    exitLandscape();
     setSlidesOpen(false);
   }, [lectureId]);
 
-  async function fullscreen() {
+  async function enterFullscreen() {
     const video = videoRef?.current;
-    if (!video) return;
 
-    const tg = window.Telegram?.WebApp;
-
-    try {
-      tg?.requestFullscreen?.();
-    } catch {}
+    if (!video) {
+      setMessage("Video player not ready.");
+      return;
+    }
 
     try {
-      const container = video.closest(".video-container");
-
-      if (container?.requestFullscreen) {
-        await container.requestFullscreen();
+      if (video.requestFullscreen) {
+        await video.requestFullscreen();
       } else if (video.webkitEnterFullscreen) {
         video.webkitEnterFullscreen();
       } else {
         setMessage(
-          "Telegram fullscreen requested. Device support may vary."
+          "Fullscreen not supported by this Telegram client."
         );
       }
     } catch {
       setMessage(
-        "Telegram fullscreen requested. Device support may vary."
+        "Fullscreen not supported by this Telegram client."
       );
     }
   }
@@ -72,23 +73,17 @@ export default function PlayerTools({
       return;
     }
 
-    leaveLandscape();
-
-    const tg = window.Telegram?.WebApp;
-
-    try {
-      tg?.unlockOrientation?.();
-      tg?.requestFullscreen?.();
-    } catch {}
+    // Do not request Telegram native fullscreen here.
+    // It introduces extra native Minimize / Close buttons
+    // that can overlap our landscape controls.
 
     const oldContainerStyle =
       container.getAttribute("style");
     const oldVideoStyle =
       video.getAttribute("style");
-    const oldBodyOverflow = document.body.style.overflow;
+    const oldBodyOverflow =
+      document.body.style.overflow;
 
-    // Fallback horizontal player, even if Telegram refuses
-    // to rotate the actual device screen.
     Object.assign(container.style, {
       position: "fixed",
       top: "0",
@@ -122,11 +117,11 @@ export default function PlayerTools({
 
     document.body.style.overflow = "hidden";
 
-    let active = true;
+    let restored = false;
 
-    cleanupRef.current = () => {
-      if (!active) return;
-      active = false;
+    restoreRef.current = () => {
+      if (restored) return;
+      restored = true;
 
       if (oldContainerStyle === null) {
         container.removeAttribute("style");
@@ -141,16 +136,18 @@ export default function PlayerTools({
       }
 
       document.body.style.overflow = oldBodyOverflow;
-
-      try {
-        if (document.fullscreenElement) {
-          document.exitFullscreen?.();
-        }
-      } catch {}
     };
 
     setLandscape(true);
     setMessage("");
+  }
+
+  function toggleLandscape() {
+    if (landscape) {
+      exitLandscape();
+    } else {
+      enterLandscape();
+    }
   }
 
   const buttonStyle = {
@@ -178,7 +175,7 @@ export default function PlayerTools({
           type="button"
           style={buttonStyle}
           disabled={!playbackUrl}
-          onClick={fullscreen}
+          onClick={enterFullscreen}
         >
           ⛶ Fullscreen
         </button>
@@ -187,9 +184,7 @@ export default function PlayerTools({
           type="button"
           style={buttonStyle}
           disabled={!playbackUrl}
-          onClick={
-            landscape ? leaveLandscape : enterLandscape
-          }
+          onClick={toggleLandscape}
         >
           {landscape ? "Exit Landscape" : "↻ Landscape"}
         </button>
@@ -199,7 +194,10 @@ export default function PlayerTools({
             type="button"
             style={buttonStyle}
             disabled={!playbackUrl}
-            onClick={() => setSlidesOpen(true)}
+            onClick={() => {
+              if (landscape) exitLandscape();
+              setSlidesOpen(true);
+            }}
           >
             ▣ Show Slides
           </button>
@@ -215,19 +213,24 @@ export default function PlayerTools({
       {landscape && (
         <button
           type="button"
-          onClick={leaveLandscape}
+          onClick={exitLandscape}
+          aria-label="Exit landscape"
           style={{
             position: "fixed",
-            bottom: 18,
-            right: 18,
+            bottom:
+              "calc(72px + env(safe-area-inset-bottom, 0px))",
+            left: "50%",
+            transform: "translateX(-50%)",
             zIndex: 25000,
-            background: "#7c3aed",
-            color: "white",
-            padding: "12px 16px",
-            borderRadius: 12,
-            border: 0,
+            background: "rgba(15, 23, 42, 0.88)",
+            color: "#ffffff",
+            border: "1px solid rgba(255,255,255,0.35)",
+            borderRadius: 999,
+            padding: "10px 22px",
+            fontSize: 13,
             fontWeight: 700,
-            boxShadow: "0 4px 18px #0009"
+            boxShadow: "0 4px 18px rgba(0,0,0,0.5)",
+            whiteSpace: "nowrap"
           }}
         >
           ✕ Exit Landscape
@@ -244,9 +247,10 @@ export default function PlayerTools({
             inset: 0,
             zIndex: 30000,
             background: "#090c16",
-            color: "white",
+            color: "#fff",
             overflowY: "auto",
-            padding: "16px"
+            padding:
+              "calc(16px + env(safe-area-inset-top, 0px)) 16px 16px"
           }}
         >
           <div
@@ -273,7 +277,7 @@ export default function PlayerTools({
                 onClick={() => setSlidesOpen(false)}
                 style={buttonStyle}
               >
-                ✕ Close
+                ✕ Close Slides
               </button>
             </div>
 
