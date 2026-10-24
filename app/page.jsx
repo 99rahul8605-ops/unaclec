@@ -125,6 +125,51 @@ export default function HomePage() {
     setReady(true);
   }, []);
 
+
+  // Telegram Mini App safe-area handling.
+  useEffect(() => {
+    const tg = window.Telegram?.WebApp;
+
+    function updateSafeArea() {
+      const safe = tg?.safeAreaInset || {};
+      const content = tg?.contentSafeAreaInset || {};
+
+      // Telegram's content-safe inset is the relevant space
+      // for app content below its own header controls.
+      const top = Math.max(
+        Number(safe.top) || 0,
+        Number(content.top) || 0
+      );
+
+      const bottom = Math.max(
+        Number(safe.bottom) || 0,
+        Number(content.bottom) || 0
+      );
+
+      document.documentElement.style.setProperty(
+        "--lecture-tg-top",
+        `${Math.max(0, top)}px`
+      );
+
+      document.documentElement.style.setProperty(
+        "--lecture-tg-bottom",
+        `${Math.max(0, bottom)}px`
+      );
+    }
+
+    updateSafeArea();
+
+    tg?.onEvent?.("safeAreaChanged", updateSafeArea);
+    tg?.onEvent?.("contentSafeAreaChanged", updateSafeArea);
+    tg?.onEvent?.("viewportChanged", updateSafeArea);
+
+    return () => {
+      tg?.offEvent?.("safeAreaChanged", updateSafeArea);
+      tg?.offEvent?.("contentSafeAreaChanged", updateSafeArea);
+      tg?.offEvent?.("viewportChanged", updateSafeArea);
+    };
+  }, []);
+
   async function api(path, options = {}) {
     const response = await fetch(path, {
       ...options,

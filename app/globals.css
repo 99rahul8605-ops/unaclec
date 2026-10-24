@@ -1036,3 +1036,28 @@ a {
     border-radius: 10px;
   }
 }
+
+
+/* TELEGRAM MINI APP TOP/BOTTOM SAFE AREA FIX */
+:root {
+  --lecture-tg-top: 0px;
+  --lecture-tg-bottom: 0px;
+}
+
+.app-shell {
+  box-sizing: border-box;
+  min-height: 100dvh;
+  padding-top: max(
+    16px,
+    calc(var(--lecture-tg-top) + 12px)
+  );
+  padding-bottom: max(
+    12px,
+    var(--lecture-tg-bottom)
+  );
+}
+
+html,
+body {
+  overflow-x: hidden;
+}
