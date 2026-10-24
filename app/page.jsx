@@ -25,6 +25,8 @@ import {
   Video
 } from "lucide-react";
 
+import ClassSlides from "../components/ClassSlides";
+
 function progressKey(batchId, subjectId, lectureId) {
   return `${batchId}|${subjectId}|${lectureId}`;
 }
@@ -77,6 +79,33 @@ export default function HomePage() {
   const [playbackUrl, setPlaybackUrl] = useState("");
   const [playbackLoading, setPlaybackLoading] = useState(false);
   const [playbackError, setPlaybackError] = useState("");
+
+  async function openFullscreen(landscape = false) {
+    const video = videoRef.current;
+    if (!video) return;
+
+    try {
+      if (video.requestFullscreen) {
+        await video.requestFullscreen();
+      } else if (video.webkitEnterFullscreen) {
+        video.webkitEnterFullscreen();
+      } else {
+        throw new Error("Fullscreen not supported");
+      }
+
+      if (landscape && screen.orientation?.lock) {
+        try {
+          await screen.orientation.lock("landscape");
+        } catch {
+          // Telegram or the device may deny orientation lock.
+        }
+      }
+    } catch (err) {
+      window.Telegram?.WebApp?.showAlert?.(
+        "Fullscreen is not supported in this Telegram client."
+      );
+    }
+  }
 
   const videoRef = useRef(null);
   const lastSavedRef = useRef(-1);
@@ -927,6 +956,33 @@ export default function HomePage() {
                           </p>
                         </div>
 
+                        <div
+                          style={{
+                            display: "flex",
+                            gap: 8,
+                            flexWrap: "wrap",
+                            marginTop: 12
+                          }}
+                        >
+                          <button
+                            type="button"
+                            className="primary-button"
+                            disabled={!playbackUrl}
+                            onClick={() => openFullscreen(false)}
+                          >
+                            Fullscreen
+                          </button>
+
+                          <button
+                            type="button"
+                            className="primary-button"
+                            disabled={!playbackUrl}
+                            onClick={() => openFullscreen(true)}
+                          >
+                            Landscape
+                          </button>
+                        </div>
+
                         <button
                           className="primary-button"
                           onClick={nextLecture}
@@ -1019,6 +1075,14 @@ export default function HomePage() {
                         ) : (
                           <div className="notes-content">
                             <h3>Class Materials</h3>
+
+                            {isFoundationPlaybackBatch(selectedBatch) && (
+                              <ClassSlides
+                                lectureId={selectedLecture.id}
+                                playbackUrl={playbackUrl}
+                              />
+                            )}
+
 
                             {selectedLecture.notes_url ? (
                               <a
