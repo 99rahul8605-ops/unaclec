@@ -13,7 +13,6 @@ import {
   BookOpen,
   CheckCircle2,
   ChevronRight,
-  Clock3,
   GraduationCap,
   Home,
   Layers3,
@@ -48,6 +47,13 @@ function countLectures(batch) {
   );
 }
 
+function isFoundationPlaybackBatch(batch) {
+  return (
+    batch?.name?.trim() ===
+    "Yoddha Regular Batch for CA Foundation Jan'27/May'27"
+  );
+}
+
 export default function HomePage() {
   const [initData, setInitData] = useState("");
   const [ready, setReady] = useState(false);
@@ -67,6 +73,10 @@ export default function HomePage() {
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState("");
+
+  const [playbackUrl, setPlaybackUrl] = useState("");
+  const [playbackLoading, setPlaybackLoading] = useState(false);
+  const [playbackError, setPlaybackError] = useState("");
 
   const videoRef = useRef(null);
   const lastSavedRef = useRef(-1);
@@ -147,19 +157,19 @@ export default function HomePage() {
         const map = {};
 
         for (const entry of data.progress || []) {
-          map[progressKey(
-            entry.batchId,
-            entry.subjectId,
-            entry.lectureId
-          )] = entry;
+          map[
+            progressKey(
+              entry.batchId,
+              entry.subjectId,
+              entry.lectureId
+            )
+          ] = entry;
         }
 
         setRecords(map);
         setError("");
       } catch (err) {
-        if (!cancelled) {
-          setError(err.message);
-        }
+        if (!cancelled) setError(err.message);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -178,11 +188,7 @@ export default function HomePage() {
     for (const batch of batches) {
       for (const subject of batch.subjects || []) {
         for (const lecture of subject.lectures || []) {
-          result.push({
-            batch,
-            subject,
-            lecture
-          });
+          result.push({ batch, subject, lecture });
         }
       }
     }
@@ -197,7 +203,6 @@ export default function HomePage() {
         subject.id,
         lecture.id
       );
-
       return records[key]?.completed === true;
     }
   ).length;
@@ -207,11 +212,10 @@ export default function HomePage() {
       batch.name.toLowerCase().includes(
         search.toLowerCase()
       ) ||
-      (batch.subjects || []).some(
-        (subject) =>
-          subject.name.toLowerCase().includes(
-            search.toLowerCase()
-          )
+      (batch.subjects || []).some((subject) =>
+        subject.name.toLowerCase().includes(
+          search.toLowerCase()
+        )
       )
   );
 
@@ -226,16 +230,24 @@ export default function HomePage() {
 
   const currentRecord = records[currentKey] || {};
 
+  function clearPlayback() {
+    setPlaybackUrl("");
+    setPlaybackError("");
+    setPlaybackLoading(false);
+  }
+
   function openBatch(batch) {
     setSelectedBatch(batch);
     setSelectedSubject(null);
     setSelectedLecture(null);
     setSearch("");
+    clearPlayback();
   }
 
   function openSubject(subject) {
     setSelectedSubject(subject);
     setSelectedLecture(null);
+    clearPlayback();
   }
 
   function openLecture(lecture) {
@@ -243,6 +255,7 @@ export default function HomePage() {
     setTab("notes");
     setSaveMessage("");
     lastSavedRef.current = -1;
+    clearPlayback();
 
     const key = progressKey(
       selectedBatch.id,
@@ -261,14 +274,94 @@ export default function HomePage() {
     } else {
       setSelectedBatch(null);
     }
+
+    clearPlayback();
   }
+
+  // Load Telegram signed playback URL for the selected lecture.
+  // Existing stream_url remains supported for other batches.
+  useEffect(() => {
+    if (!selectedLecture || !selectedBatch) return;
+
+    const lectureId = selectedLecture.id;
+    let cancelled = false;
+
+    setPlaybackUrl("");
+    setPlaybackError("");
+
+    if (!isFoundationPlaybackBatch(selectedBatch)) {
+      setPlaybackLoading(false);
+      setPlaybackUrl(selectedLecture.stream_url || "");
+      return;
+    }
+
+    if (!initData) {
+      setPlaybackLoading(false);
+      setPlaybackError("Telegram login is required.");
+      return;
+    }
+
+    setPlaybackLoading(true);
+
+    async function connectPlayback() {
+      try {
+        const response = await fetch(
+          `/api/play/${encodeURIComponent(lectureId)}`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({ initData }),
+            cache: "no-store"
+          }
+        );
+
+        const result = await response.json();
+
+        if (!response.ok) {
+          throw new Error(
+            result.error ||
+              `Playback error (${response.status})`
+          );
+        }
+
+        if (!result.url) {
+          throw new Error("Streaming URL was not returned.");
+        }
+
+        if (!cancelled) {
+          setPlaybackUrl(result.url);
+          setPlaybackError("");
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setPlaybackError(
+            err.message || "Unable to connect playback."
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setPlaybackLoading(false);
+        }
+      }
+    }
+
+    connectPlayback();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedLecture, selectedBatch, initData]);
 
   async function persist(action, values) {
     if (
       !selectedBatch ||
       !selectedSubject ||
       !selectedLecture
-    ) return;
+    ) {
+      return;
+    }
 
     const key = progressKey(
       selectedBatch.id,
@@ -319,7 +412,9 @@ export default function HomePage() {
     if (
       !force &&
       Math.abs(second - lastSavedRef.current) < 10
-    ) return;
+    ) {
+      return;
+    }
 
     lastSavedRef.current = second;
 
@@ -330,17 +425,16 @@ export default function HomePage() {
 
     persist("watch", {
       seconds: second,
-      completed: complete || currentRecord.completed === true
+      completed:
+        complete || currentRecord.completed === true
     }).catch(() => {});
   }
 
-  const lectureList =
-    selectedSubject?.lectures || [];
+  const lectureList = selectedSubject?.lectures || [];
 
   const currentPosition = selectedLecture
     ? lectureList.findIndex(
-        (lecture) =>
-          lecture.id === selectedLecture.id
+        (lecture) => lecture.id === selectedLecture.id
       )
     : -1;
 
@@ -358,11 +452,13 @@ export default function HomePage() {
             setSelectedBatch(null);
             setSelectedSubject(null);
             setSelectedLecture(null);
+            clearPlayback();
           }}
         >
           <div className="brand-icon">
             <GraduationCap size={23} />
           </div>
+
           <div>
             <strong>Lecture Manager</strong>
             <small>YOUR LEARNING SPACE</small>
@@ -378,9 +474,11 @@ export default function HomePage() {
               setSelectedBatch(null);
               setSelectedSubject(null);
               setSelectedLecture(null);
+              clearPlayback();
             }}
           >
-            <Home size={18} /> Dashboard
+            <Home size={18} />
+            Dashboard
           </button>
 
           <button
@@ -389,9 +487,11 @@ export default function HomePage() {
               setSelectedBatch(null);
               setSelectedSubject(null);
               setSelectedLecture(null);
+              clearPlayback();
             }}
           >
-            <Layers3 size={18} /> My Batches
+            <Layers3 size={18} />
+            My Batches
           </button>
         </div>
 
@@ -466,6 +566,7 @@ export default function HomePage() {
                         <Sparkles size={14} />
                         YOUR LEARNING JOURNEY
                       </span>
+
                       <h1>
                         Welcome back,
                         <br />
@@ -473,6 +574,7 @@ export default function HomePage() {
                           {user?.firstName || "Student"}!
                         </span>
                       </h1>
+
                       <p>
                         Pick up where you left off. All
                         your lectures, in one beautiful
@@ -484,6 +586,7 @@ export default function HomePage() {
                           <BookOpen size={16} />
                           {batches.length} batches
                         </span>
+
                         <span>
                           <CheckCircle2 size={16} />
                           {completed} completed
@@ -534,7 +637,9 @@ export default function HomePage() {
                           <button
                             className="batch-card"
                             key={batch.id}
-                            onClick={() => openBatch(batch)}
+                            onClick={() =>
+                              openBatch(batch)
+                            }
                           >
                             <div
                               className={
@@ -553,7 +658,9 @@ export default function HomePage() {
                               <span className="batch-type">
                                 LEARNING PROGRAM
                               </span>
+
                               <h3>{batch.name}</h3>
+
                               <p>
                                 {batch.description ||
                                   "Your complete lecture library"}
@@ -565,6 +672,7 @@ export default function HomePage() {
                                   {batch.subjects?.length || 0}
                                   {" "}subjects
                                 </span>
+
                                 <span>
                                   <Video size={15} />
                                   {countLectures(batch)}
@@ -662,8 +770,7 @@ export default function HomePage() {
                         lecture.id
                       );
 
-                      const record =
-                        records[key] || {};
+                      const record = records[key] || {};
 
                       return (
                         <button
@@ -679,7 +786,7 @@ export default function HomePage() {
                             ) : (
                               String(
                                 lecture.class_number ||
-                                index + 1
+                                  index + 1
                               ).padStart(2, "0")
                             )}
                           </div>
@@ -725,13 +832,32 @@ export default function HomePage() {
                   <div className="player-layout">
                     <div className="player-main">
                       <div className="video-container">
-                        {selectedLecture.stream_url ? (
+                        {playbackLoading ? (
+                          <div className="no-video">
+                            <div className="spinner" />
+                            <h3>
+                              Connecting to Telegram video...
+                            </h3>
+                            <p>
+                              Preparing secure lecture playback.
+                            </p>
+                          </div>
+                        ) : playbackError ? (
+                          <div className="no-video">
+                            <div className="no-video-icon">
+                              <LockKeyhole size={35} />
+                            </div>
+                            <h3>Video unavailable</h3>
+                            <p>{playbackError}</p>
+                          </div>
+                        ) : playbackUrl ? (
                           <video
-                            key={selectedLecture.id}
+                            key={`${selectedLecture.id}:${playbackUrl}`}
                             ref={videoRef}
-                            src={selectedLecture.stream_url}
+                            src={playbackUrl}
                             controls
                             playsInline
+                            preload="metadata"
                             controlsList="nodownload"
                             disablePictureInPicture
                             onLoadedMetadata={(event) => {
@@ -743,7 +869,7 @@ export default function HomePage() {
                               if (
                                 resume > 0 &&
                                 resume <
-                                event.currentTarget.duration
+                                  event.currentTarget.duration
                               ) {
                                 event.currentTarget.currentTime =
                                   resume;
@@ -763,24 +889,29 @@ export default function HomePage() {
                             onEnded={() => {
                               persist("watch", {
                                 seconds:
-                                  videoRef.current
-                                    ?.duration || 0,
+                                  videoRef.current?.duration || 0,
                                 completed: true
                               }).catch(() => {});
                             }}
+                            onError={() =>
+                              setPlaybackError(
+                                "Video stream failed. Check HTTPS tunnel, Telegram media access and video format."
+                              )
+                            }
                           />
                         ) : (
                           <div className="no-video">
                             <div className="no-video-icon">
                               <LockKeyhole size={35} />
                             </div>
+
                             <h3>
                               Playback not configured
                             </h3>
+
                             <p>
-                              An authorized streaming
-                              URL has not been connected
-                              to this lecture yet.
+                              This lecture does not have a
+                              streaming URL yet.
                             </p>
                           </div>
                         )}
@@ -845,6 +976,7 @@ export default function HomePage() {
                             <h3>
                               Personal Lecture Notes
                             </h3>
+
                             <p>
                               Write anything you want to
                               remember from this class.
@@ -938,6 +1070,7 @@ export default function HomePage() {
                             <div className="playlist-index">
                               {index + 1}
                             </div>
+
                             <div>
                               <strong>
                                 {lecture.name}
