@@ -113,17 +113,44 @@ export default function HomePage() {
   const lastSavedRef = useRef(-1);
 
   useEffect(() => {
-    const webApp = window.Telegram?.WebApp;
+    let finished = false;
+    const deadline = Date.now() + 8000;
 
-    if (webApp) {
-      webApp.ready();
-      webApp.expand();
-      webApp.setHeaderColor?.("#101322");
-      webApp.setBackgroundColor?.("#090c16");
-      setInitData(webApp.initData || "");
-    }
+    const checkTelegram = () => {
+      if (finished) return;
 
-    setReady(true);
+      const webApp = window.Telegram?.WebApp;
+      const data = webApp?.initData || "";
+
+      if (data) {
+        finished = true;
+        clearInterval(timer);
+
+        try {
+          webApp.ready();
+          webApp.expand();
+          webApp.setHeaderColor?.("#101322");
+          webApp.setBackgroundColor?.("#090c16");
+        } catch (error) {
+          console.warn("Telegram UI setup:", error);
+        }
+
+        setInitData(data);
+        setReady(true);
+      } else if (Date.now() >= deadline) {
+        finished = true;
+        clearInterval(timer);
+        setReady(true);
+      }
+    };
+
+    const timer = setInterval(checkTelegram, 200);
+    checkTelegram();
+
+    return () => {
+      finished = true;
+      clearInterval(timer);
+    };
   }, []);
 
 
