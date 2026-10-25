@@ -435,8 +435,16 @@ export default function HomePage() {
         );
 
         if (!sessionResponse.ok) {
+          let reason = "";
+          try {
+            const details = await sessionResponse.json();
+            reason = details.error || details.detail || "";
+          } catch {}
+
           throw new Error(
-            `Private session failed (${sessionResponse.status})`
+            reason
+              ? `Private session: ${reason}`
+              : `Private session failed (${sessionResponse.status})`
           );
         }
 
