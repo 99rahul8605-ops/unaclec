@@ -7,7 +7,12 @@ export async function GET(request) {
   const user = verifyTelegram(request);
   if (!user) return unauthorized();
 
-  const adminId = process.env.ADMIN_TELEGRAM_ID;
+  // Normalize accidental whitespace or surrounding quotes.
+  // Admin access still requires an exact numeric Telegram user ID.
+  const adminId = String(process.env.ADMIN_TELEGRAM_ID ?? "")
+    .trim()
+    .replace(/^["']|["']$/g, "")
+    .trim();
 
   if (!adminId || !/^\\d+$/.test(adminId)) {
     console.error("ADMIN_CONFIGURATION_ERROR", {
