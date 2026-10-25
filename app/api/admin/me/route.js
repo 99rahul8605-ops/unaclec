@@ -10,8 +10,18 @@ export async function GET(request) {
   const adminId = process.env.ADMIN_TELEGRAM_ID;
 
   if (!adminId || !/^\\d+$/.test(adminId)) {
+    console.error("ADMIN_CONFIGURATION_ERROR", {
+      configured: Boolean(adminId),
+      numeric: Boolean(adminId && /^\\d+$/.test(adminId)),
+      length: adminId?.length || 0
+    });
+
     return Response.json(
-      { error: "Admin not configured" },
+      {
+        error: !adminId
+          ? "ADMIN_TELEGRAM_ID missing in production"
+          : "ADMIN_TELEGRAM_ID must contain only digits"
+      },
       { status: 503 }
     );
   }
