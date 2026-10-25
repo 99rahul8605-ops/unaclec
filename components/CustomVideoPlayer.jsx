@@ -371,16 +371,19 @@ export default function CustomVideoPlayer({
             onClick={() => setCameraVisible((v) => !v)}
             style={{
               position: "absolute",
-              top: expanded ? "auto" : 8,
-              bottom: expanded ? 58 : "auto",
-              left: 8,
-              zIndex: 10,
-              border: 0,
-              borderRadius: 8,
-              padding: "6px 10px",
+              top: expanded ? 12 : 10,
+              left: 10,
+              bottom: "auto",
+              right: "auto",
+              zIndex: 12,
+              border: "1px solid rgba(255,255,255,.3)",
+              borderRadius: 9,
+              padding: "7px 11px",
+              background: "rgba(0,0,0,.75)",
               color: "#fff",
-              background: "rgba(0,0,0,.8)",
-              fontSize: 12
+              fontSize: 12,
+              fontWeight: 700,
+              cursor: "pointer"
             }}
           >
             {cameraVisible ? "Hide Cam" : "Show Cam"}
@@ -513,6 +516,82 @@ export default function CustomVideoPlayer({
           }}
         />
 
+
+        {/* SEEK_OVERLAY_V1 */}
+        {controlsVisible && (
+          <>
+<button
+                type="button"
+                style={{
+                position: "absolute",
+                top: "50%",
+                left: "13%",
+                transform: "translateY(-50%)",
+                zIndex: 6,
+                width: 52,
+                height: 52,
+                border: "1px solid rgba(255,255,255,.25)",
+                borderRadius: "50%",
+                background: "rgba(0,0,0,.58)",
+                color: "#fff",
+                fontSize: 13,
+                fontWeight: 700,
+                cursor: "pointer",
+                touchAction: "manipulation"
+              }}
+                aria-label="Seek backward 10 seconds"
+                onClick={() => {
+                  const el = video();
+                  if (!el) return;
+                  el.currentTime = Math.max(
+                    0,
+                    (el.currentTime || 0) - 10
+                  );
+                  revealControls();
+                }}
+              >
+                −10s
+              </button>
+<button
+                type="button"
+                style={{
+                position: "absolute",
+                top: "50%",
+                right: "13%",
+                transform: "translateY(-50%)",
+                zIndex: 6,
+                width: 52,
+                height: 52,
+                border: "1px solid rgba(255,255,255,.25)",
+                borderRadius: "50%",
+                background: "rgba(0,0,0,.58)",
+                color: "#fff",
+                fontSize: 13,
+                fontWeight: 700,
+                cursor: "pointer",
+                touchAction: "manipulation"
+              }}
+                aria-label="Seek forward 10 seconds"
+                onClick={() => {
+                  const el = video();
+                  if (!el) return;
+
+                  const target = (el.currentTime || 0) + 10;
+
+                  el.currentTime =
+                    Number.isFinite(el.duration) &&
+                    el.duration > 0
+                      ? Math.min(el.duration, target)
+                      : target;
+
+                  revealControls();
+                }}
+              >
+                +10s
+              </button>
+          </>
+        )}
+
         {!playing && (
           <button
             type="button"
@@ -610,52 +689,9 @@ export default function CustomVideoPlayer({
                   : <Volume2 size={17} />}
               </button>
 
-              <button
-                type="button"
-                style={{
-                  ...buttonStyle,
-                  minWidth: 34,
-                  padding: "7px 5px"
-                }}
-                aria-label="Seek backward 10 seconds"
-                onClick={() => {
-                  const el = video();
-                  if (!el) return;
-                  el.currentTime = Math.max(
-                    0,
-                    (el.currentTime || 0) - 10
-                  );
-                  revealControls();
-                }}
-              >
-                −10s
-              </button>
+              
 
-              <button
-                type="button"
-                style={{
-                  ...buttonStyle,
-                  minWidth: 34,
-                  padding: "7px 5px"
-                }}
-                aria-label="Seek forward 10 seconds"
-                onClick={() => {
-                  const el = video();
-                  if (!el) return;
-
-                  const target = (el.currentTime || 0) + 10;
-
-                  el.currentTime =
-                    Number.isFinite(el.duration) &&
-                    el.duration > 0
-                      ? Math.min(el.duration, target)
-                      : target;
-
-                  revealControls();
-                }}
-              >
-                +10s
-              </button>
+              
 
               <button
                 type="button"
