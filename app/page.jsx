@@ -51,11 +51,13 @@ function countLectures(batch) {
   );
 }
 
+const PLAYBACK_BATCHES = [
+  "Yoddha Regular Batch for CA Foundation Jan'27/May'27",
+  "Yoddha Regular Batch for CA Foundation May'26 / Sep'26",
+];
+
 function isFoundationPlaybackBatch(batch) {
-  return (
-    batch?.name?.trim() ===
-    "Yoddha Regular Batch for CA Foundation Jan'27/May'27"
-  );
+  return PLAYBACK_BATCHES.includes(batch?.name?.trim());
 }
 
 export default function HomePage() {
