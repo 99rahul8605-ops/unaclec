@@ -35,7 +35,56 @@ export async function POST(request) {
   const chatId = message?.chat?.id;
   const text = (message?.text || "").trim();
 
-  if (!chatId || !/^\/start(?:@\w+)?(?:\s|$)/i.test(text)) {
+  // LECTURE_ADMIN_COMMAND_V1
+  const isAdminCommand = /^\/admin(?:@lectureunacbot)?(?:\s|$)/i.test(text);
+  const isStartCommand = /^\/start(?:@\w+)?(?:\s|$)/i.test(text);
+
+  if (isAdminCommand) {
+    const adminId = process.env.ADMIN_TELEGRAM_ID;
+
+    // Private chat only. Never trust an ID supplied by the client.
+    const allowed =
+      adminId &&
+      /^\d+$/.test(adminId) &&
+      message?.chat?.type === "private" &&
+      String(message?.from?.id) === adminId;
+
+    if (!allowed) {
+      return Response.json({ ok: true });
+    }
+
+    const response = await fetch(
+      `https://api.telegram.org/bot${token}/sendMessage`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: chatId,
+          text: "🔐 Lecture Manager Admin Panel\n\nTap below to open your dashboard.",
+          reply_markup: {
+            inline_keyboard: [[{
+              text: "⚙️ Open Admin Panel",
+              web_app: {
+                url: "https://app.bingolink.site/admin"
+              }
+            }]]
+          }
+        }),
+        cache: "no-store"
+      }
+    );
+
+    if (!response.ok) {
+      return Response.json(
+        { error: "Admin message failed" },
+        { status: 502 }
+      );
+    }
+
+    return Response.json({ ok: true });
+  }
+
+  if (!chatId || !isStartCommand) {
     return Response.json({ ok: true });
   }
 
