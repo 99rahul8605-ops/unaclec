@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-const TABS = ["Overview", "Batches", "Import", "Students"];
+const TABS = ["Overview", "Batches", "Import", "Students", "Force Join"];
 
 const EXAMPLE = JSON.stringify(
   {
@@ -372,34 +372,79 @@ function Batches() {
 
 function ImportTab() {
   const [text, setText] = useState("");
+  const [fileName, setFileName] = useState("");
+  const [preview, setPreview] = useState(null);
   const [error, setError] = useState("");
   const [ok, setOk] = useState("");
   const [busy, setBusy] = useState(false);
+  const [showJson, setShowJson] = useState(false);
+  const [json, setJson] = useState("");
 
-  async function readFile(event) {
+  async function readTxt(event) {
     const file = event.target.files?.[0];
     if (!file) return;
-    if (file.size > 4 * 1024 * 1024) {
-      setError("File too large (max 4 MB).");
+    setError("");
+    setOk("");
+    setPreview(null);
+
+    if (file.size > 5 * 1024 * 1024) {
+      setError("File too large (max 5 MB).");
       return;
     }
-    setText(await file.text());
-    setError("");
-    setOk("");
+
+    const content = await file.text();
+    setText(content);
+    setFileName(file.name);
+
+    setBusy(true);
+    try {
+      const result = await api("/api/admin/import-txt", {
+        method: "POST",
+        body: JSON.stringify({ text: content, dryRun: true })
+      });
+      setPreview(result.batches);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
   }
 
-  async function submit() {
+  async function publish(published) {
+    setBusy(true);
     setError("");
     setOk("");
+    try {
+      const result = await api("/api/admin/import-txt", {
+        method: "POST",
+        body: JSON.stringify({ text, published })
+      });
+      setOk(
+        result.batches
+          .map((b) => `${b.name}: ${b.subjects} subjects, ${b.lectures} lectures`)
+          .join("\n") +
+          (published ? "\n\nLive for students." : "\n\nSaved as hidden.")
+      );
+      setPreview(null);
+      setText("");
+      setFileName("");
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
 
+  async function importJson() {
+    setError("");
+    setOk("");
     let parsed;
     try {
-      parsed = JSON.parse(text);
+      parsed = JSON.parse(json);
     } catch {
       setError("Invalid JSON. Check commas and quotes.");
       return;
     }
-
     setBusy(true);
     try {
       const result = await api("/api/admin/import", {
@@ -419,63 +464,99 @@ function ImportTab() {
   }
 
   return (
-    <section style={panel}>
-      <h3 style={{ marginTop: 0 }}>🔗 Import Catalog (JSON)</h3>
-      <p style={muted}>
-        Paste catalog JSON (same format as catalog-example.json) or choose a
-        file. Existing batches with the same id are updated.
-      </p>
+    <>
+      <section style={panel}>
+        <h3 style={{ marginTop: 0 }}>➕ Add a new batch</h3>
+        <ol style={{ ...muted, paddingLeft: 18, lineHeight: 1.7 }}>
+          <li>In the Telegram bot, pick the batch and export its TXT file.</li>
+          <li>Choose that TXT file below.</li>
+          <li>Check the summary, then press Publish.</li>
+        </ol>
 
-      <textarea
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        placeholder='{"batches":[...]}'
-        rows={12}
-        style={{
-          width: "100%",
-          boxSizing: "border-box",
-          padding: 12,
-          borderRadius: 12,
-          border: "1px solid #494164",
-          background: "#101021",
-          color: "white",
-          fontFamily: "monospace",
-          fontSize: 12
-        }}
-      />
-
-      <div
-        style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}
-      >
-        <button disabled={busy || !text.trim()} onClick={submit} style={btn()}>
-          {busy ? "Importing…" : "Import"}
-        </button>
-        <button onClick={() => setText(EXAMPLE)} style={btn("#242138")}>
-          Load example
-        </button>
-        <label style={btn("#242138", { display: "inline-block" })}>
-          Choose file
+        <label style={btn("#8651ed", { display: "inline-block" })}>
+          📄 Choose TXT file
           <input
             type="file"
-            accept="application/json,.json"
-            onChange={readFile}
+            accept=".txt,text/plain"
+            onChange={readTxt}
             style={{ display: "none" }}
           />
         </label>
-      </div>
+        {fileName && <span style={{ ...muted, marginLeft: 10 }}>{fileName}</span>}
 
-      <Notice error={error} ok={ok} />
-      <p style={{ ...muted, marginTop: 12 }}>
-        Videos only play if a lecture has a direct HTTPS stream_url, or belongs
-        to a batch configured on the stream server.
-      </p>
-    </section>
+        {busy && <p style={muted}>Working…</p>}
+
+        {preview && (
+          <div style={{ marginTop: 14 }}>
+            {preview.map((b) => (
+              <div
+                key={b.id}
+                style={{ padding: 12, background: "#26213c", borderRadius: 12, marginBottom: 8 }}
+              >
+                <strong>{b.name}</strong>
+                <div style={muted}>
+                  {b.subjects} subjects · {b.lectures} lectures
+                </div>
+              </div>
+            ))}
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button disabled={busy} onClick={() => publish(true)} style={btn("#1f6b45")}>
+                Publish for students
+              </button>
+              <button disabled={busy} onClick={() => publish(false)} style={btn("#242138")}>
+                Save as hidden
+              </button>
+            </div>
+          </div>
+        )}
+
+        <Notice error={error} ok={ok} />
+      </section>
+
+      <button
+        onClick={() => setShowJson(!showJson)}
+        style={{ ...btn("#242138"), marginTop: 14 }}
+      >
+        {showJson ? "Hide" : "Show"} advanced (JSON import)
+      </button>
+
+      {showJson && (
+        <section style={{ ...panel, marginTop: 12 }}>
+          <p style={muted}>Paste catalog JSON (same format as catalog-example.json).</p>
+          <textarea
+            value={json}
+            onChange={(e) => setJson(e.target.value)}
+            placeholder='{"batches":[...]}'
+            rows={10}
+            style={{
+              width: "100%",
+              boxSizing: "border-box",
+              padding: 12,
+              borderRadius: 12,
+              border: "1px solid #494164",
+              background: "#101021",
+              color: "white",
+              fontFamily: "monospace",
+              fontSize: 12
+            }}
+          />
+          <button
+            disabled={busy || !json.trim()}
+            onClick={importJson}
+            style={{ ...btn(), marginTop: 10 }}
+          >
+            Import JSON
+          </button>
+        </section>
+      )}
+    </>
   );
 }
 
 function Students() {
   const [rows, setRows] = useState(null);
   const [error, setError] = useState("");
+  const [query, setQuery] = useState("");
 
   useEffect(() => {
     api("/api/admin/stats")
@@ -483,16 +564,38 @@ function Students() {
       .catch((e) => setError(e.message));
   }, []);
 
+  const q = query.trim().toLowerCase();
+  const shown = (rows || []).filter(
+    (r) =>
+      !q ||
+      String(r.name).toLowerCase().includes(q) ||
+      String(r.username).toLowerCase().includes(q) ||
+      String(r.userId).includes(q)
+  );
+
   return (
     <section style={panel}>
-      <h3 style={{ marginTop: 0 }}>🎓 Recent Students</h3>
+      <h3 style={{ marginTop: 0 }}>🎓 Students</h3>
+      <input
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder="Search name, @username or ID"
+        style={{
+          width: "100%",
+          boxSizing: "border-box",
+          padding: 10,
+          borderRadius: 10,
+          border: "1px solid #494164",
+          background: "#101021",
+          color: "white",
+          marginBottom: 12
+        }}
+      />
       <Notice error={error} />
       {!rows && !error && <p style={muted}>Loading…</p>}
-      {rows && rows.length === 0 && (
-        <p style={muted}>No student activity yet.</p>
-      )}
+      {rows && shown.length === 0 && <p style={muted}>No students found.</p>}
       <div style={{ display: "grid", gap: 8 }}>
-        {(rows || []).map((r) => (
+        {shown.map((r) => (
           <div
             key={r.userId}
             style={{
@@ -506,8 +609,13 @@ function Students() {
             }}
           >
             <div>
-              <div style={{ fontWeight: 600 }}>ID {r.userId}</div>
-              <div style={muted}>Last active {formatDate(r.last)}</div>
+              <div style={{ fontWeight: 600 }}>
+                {r.name || "Student"}
+                {r.username ? ` · @${r.username}` : ""}
+              </div>
+              <div style={muted}>
+                ID {r.userId} · last active {formatDate(r.last)}
+              </div>
             </div>
             <div style={{ textAlign: "right", ...muted }}>
               {r.lectures} lectures
@@ -518,6 +626,171 @@ function Students() {
         ))}
       </div>
     </section>
+  );
+}
+
+function ForceJoin() {
+  const [data, setData] = useState(null);
+  const [error, setError] = useState("");
+  const [ok, setOk] = useState("");
+  const [chatId, setChatId] = useState("");
+  const [link, setLink] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      setData(await api("/api/admin/forcejoin"));
+    } catch (e) {
+      setError(e.message);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  async function run(fn, success) {
+    setBusy(true);
+    setError("");
+    setOk("");
+    try {
+      const result = await fn();
+      setOk(success(result));
+      await load();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const add = () =>
+    run(
+      async () => {
+        const result = await api("/api/admin/forcejoin", {
+          method: "POST",
+          body: JSON.stringify({ chatId, link })
+        });
+        setChatId("");
+        setLink("");
+        return result;
+      },
+      (r) =>
+        `Added ${r.chat.title}.` +
+        (r.warning ? `\n⚠️ ${r.warning}` : "") +
+        (r.linkMissing
+          ? "\n⚠️ No invite link found. Paste one, or students will not see a Join button."
+          : "")
+    );
+
+  const toggle = () =>
+    run(
+      () =>
+        api("/api/admin/forcejoin", {
+          method: "PATCH",
+          body: JSON.stringify({ enabled: !data.enabled })
+        }),
+      () => (data.enabled ? "Force join is OFF." : "Force join is ON.")
+    );
+
+  const remove = (chat) =>
+    run(
+      () => api(`/api/admin/forcejoin?chatId=${chat.chatId}`, { method: "DELETE" }),
+      () => `Removed ${chat.title}.`
+    );
+
+  const input = {
+    width: "100%",
+    boxSizing: "border-box",
+    padding: 10,
+    borderRadius: 10,
+    border: "1px solid #494164",
+    background: "#101021",
+    color: "white",
+    marginBottom: 8
+  };
+
+  return (
+    <>
+      <section style={panel}>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+          <div>
+            <h3 style={{ margin: 0 }}>🔐 Force Join</h3>
+            <p style={{ ...muted, margin: "6px 0 0" }}>
+              Students must join all chats below to open lectures.
+            </p>
+          </div>
+          {data && (
+            <button
+              disabled={busy}
+              onClick={toggle}
+              style={btn(data.enabled ? "#1f6b45" : "#3b2d17", { height: "fit-content" })}
+            >
+              {data.enabled ? "ON" : "OFF"}
+            </button>
+          )}
+        </div>
+        <Notice error={error} ok={ok} />
+      </section>
+
+      <section style={{ ...panel, marginTop: 12 }}>
+        <h3 style={{ marginTop: 0 }}>Required chats</h3>
+        {!data && !error && <p style={muted}>Loading…</p>}
+        {data && data.chats.length === 0 && (
+          <p style={muted}>None yet. Add a group or channel below.</p>
+        )}
+        <div style={{ display: "grid", gap: 8 }}>
+          {(data?.chats || []).map((chat) => (
+            <div
+              key={chat.chatId}
+              style={{ padding: 12, background: "#26213c", borderRadius: 12 }}
+            >
+              <strong>
+                {chat.type === "channel" ? "📢" : "👥"} {chat.title}
+              </strong>
+              <div style={muted}>ID {chat.chatId}</div>
+              <div style={{ fontSize: 12, marginTop: 4, color: chat.bot?.ok ? "#a8f0c6" : "#ffd89a" }}>
+                {chat.bot?.ok ? "✅" : "⚠️"} {chat.bot?.note}
+              </div>
+              {!chat.link && (
+                <div style={{ fontSize: 12, color: "#ffd89a" }}>⚠️ No join link saved</div>
+              )}
+              <button
+                disabled={busy}
+                onClick={() => remove(chat)}
+                style={btn("#3b1d2a", { marginTop: 8 })}
+              >
+                Remove
+              </button>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section style={{ ...panel, marginTop: 12 }}>
+        <h3 style={{ marginTop: 0 }}>Add a group / channel</h3>
+        <ol style={{ ...muted, paddingLeft: 18, lineHeight: 1.7 }}>
+          <li>Add this bot to the group/channel as an admin.</li>
+          <li>Enter its ID (like -1001234567890) or @username below.</li>
+          <li>Optional: paste an invite link for private chats.</li>
+        </ol>
+        <input
+          style={input}
+          value={chatId}
+          onChange={(e) => setChatId(e.target.value)}
+          placeholder="-1001234567890 or @username"
+        />
+        <input
+          style={input}
+          value={link}
+          onChange={(e) => setLink(e.target.value)}
+          placeholder="Invite link (optional) https://t.me/+..."
+        />
+        <button disabled={busy || !chatId.trim()} onClick={add} style={btn()}>
+          Add
+        </button>
+      </section>
+    </>
   );
 }
 
@@ -568,6 +841,7 @@ export default function AdminDashboard() {
         {tab === "Batches" && <Batches />}
         {tab === "Import" && <ImportTab />}
         {tab === "Students" && <Students />}
+        {tab === "Force Join" && <ForceJoin />}
       </div>
     </main>
   );

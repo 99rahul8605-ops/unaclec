@@ -1,6 +1,9 @@
 
 import crypto from "node:crypto";
 
+import { getDb } from "../../../../lib/mongodb";
+import { checkForceJoin } from "../../../../lib/forcejoin";
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -114,6 +117,19 @@ export async function POST(request, context) {
         { error: "Telegram authentication required" },
         401
       );
+    }
+
+    try {
+      const db = await getDb();
+      const gate = await checkForceJoin(db, user.id);
+      if (!gate.ok) {
+        return Response.json(
+          { error: "Join the required channels to watch lectures.", joinRequired: true },
+          { status: 403 }
+        );
+      }
+    } catch (error) {
+      console.error("FORCE_JOIN_CHECK_FAILED", error);
     }
 
     const origin = (

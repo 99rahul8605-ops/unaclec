@@ -1,6 +1,8 @@
 
 "use client";
 
+import JoinGate from "../components/JoinGate";
+
 import {
   useEffect,
   useMemo,
@@ -65,6 +67,7 @@ export default function HomePage() {
   const [ready, setReady] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [joinGate, setJoinGate] = useState(null);
 
   const [user, setUser] = useState(null);
   const [batches, setBatches] = useState([]);
@@ -249,6 +252,7 @@ export default function HomePage() {
         const data = await response.json();
 
         if (!response.ok) {
+          if (data.joinRequired && !cancelled) setJoinGate(data);
           throw new Error(
             data.error || "Unable to load library."
           );
@@ -394,7 +398,7 @@ export default function HomePage() {
     setPlaybackUrl("");
     setPlaybackError("");
 
-    if (!isFoundationPlaybackBatch(selectedBatch)) {
+    if (selectedLecture.stream_url) {
       setPlaybackLoading(false);
       setPlaybackUrl(selectedLecture.stream_url || "");
       return;
@@ -683,7 +687,9 @@ export default function HomePage() {
             </div>
           )}
 
-          {!loading && error && (
+          {!loading && joinGate && <JoinGate gate={joinGate} />}
+
+          {!loading && error && !joinGate && (
             <div className="empty-state">
               <LockKeyhole size={40} />
               <h3>Unable to open library</h3>
@@ -1002,7 +1008,7 @@ export default function HomePage() {
                             key={`${selectedLecture.id}:${playbackUrl}`}
                             videoRef={videoRef}
                             lectureId={selectedLecture.id}
-                            showSlides={isFoundationPlaybackBatch(selectedBatch)}
+                            showSlides={!selectedLecture?.stream_url}
                             src={playbackUrl}
                             crossOrigin="use-credentials"
                             playsInline
@@ -1171,7 +1177,7 @@ export default function HomePage() {
                           <div className="notes-content">
                             <h3>Class Materials</h3>
 
-                            {isFoundationPlaybackBatch(selectedBatch) && (
+                            {!selectedLecture?.stream_url && (
                               <ClassSlides
                                 lectureId={selectedLecture.id}
                                 playbackUrl={playbackUrl}
