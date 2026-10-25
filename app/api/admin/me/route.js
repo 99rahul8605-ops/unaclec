@@ -14,10 +14,10 @@ export async function GET(request) {
     .replace(/^["']|["']$/g, "")
     .trim();
 
-  if (!adminId || !/^\\d+$/.test(adminId)) {
+  if (!adminId || !/^[0-9]+$/.test(adminId)) {
     console.error("ADMIN_CONFIGURATION_ERROR", {
       configured: Boolean(adminId),
-      numeric: Boolean(adminId && /^\\d+$/.test(adminId)),
+      numeric: Boolean(adminId && /^[0-9]+$/.test(adminId)),
       length: adminId?.length || 0
     });
 
