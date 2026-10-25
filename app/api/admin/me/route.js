@@ -1,47 +1,26 @@
-import { verifyTelegram, unauthorized } from "../../../../lib/telegram";
+import { requireAdmin } from "../../../../lib/admin-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(request) {
-  const user = verifyTelegram(request);
-  if (!user) return unauthorized();
+  const result = requireAdmin(request);
 
-  // Normalize accidental whitespace or surrounding quotes.
-  // Admin access still requires an exact numeric Telegram user ID.
-  const adminId = String(process.env.ADMIN_TELEGRAM_ID ?? "")
-    .trim()
-    .replace(/^["']|["']$/g, "")
-    .trim();
+  if (!result.ok) return result.response;
 
-  if (!adminId || !/^[0-9]+$/.test(adminId)) {
-    console.error("ADMIN_CONFIGURATION_ERROR", {
-      configured: Boolean(adminId),
-      numeric: Boolean(adminId && /^[0-9]+$/.test(adminId)),
-      length: adminId?.length || 0
-    });
-
-    return Response.json(
-      {
-        error: !adminId
-          ? "ADMIN_TELEGRAM_ID missing in production"
-          : "ADMIN_TELEGRAM_ID must contain only digits"
-      },
-      { status: 503 }
-    );
-  }
-
-  if (user.id !== adminId) {
-    return Response.json(
-      { error: "Access denied" },
-      { status: 403 }
-    );
-  }
-
-  return Response.json({
-    ok: true,
-    admin: {
-      firstName: user.firstName
+  return Response.json(
+    {
+      ok: true,
+      verified: true,
+      method: "telegram-signed-init-data",
+      admin: {
+        firstName: result.user.firstName
+      }
+    },
+    {
+      headers: {
+        "Cache-Control": "no-store"
+      }
     }
-  });
+  );
 }
