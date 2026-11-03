@@ -364,10 +364,18 @@ function loadImage(url) {
   return new Promise((resolve) => {
     const img = new Image();
     img.crossOrigin = "use-credentials";
-
-    img.onload = () => resolve(img);
-    img.onerror = () => resolve(null);
-
+    let settled = false;
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      img.onload = null;
+      img.onerror = null;
+      resolve(result);
+    };
+    const timeout = setTimeout(() => finish(null), 15000);
+    img.onload = () => finish(img);
+    img.onerror = () => finish(null);
     img.src = url;
   });
 }
@@ -431,64 +439,89 @@ export default function SyncedBoard({
           (Number(a.c_id || 0) - Number(b.c_id || 0))
         );
 
-        const entries = (manifest.slides || []).filter(
-          (entry) => entry && entry.url &&
-          !String(entry.name || "").toLowerCase().endsWith(".pdf")
-        );
-
-        const images = new Map();
-        const loaded = [];
-
-        for (const entry of entries) {
-          if (cancelled) return;
-
-          const src = new URL(
-            entry.url,
-            base.origin
-          ).toString();
-
-          const img = await loadImage(src);
-          if (!img) continue;
-
-          const name = String(
-            entry.name || entry.key || ""
-          ).toLowerCase();
-
-          images.set(name, img);
-          loaded.push(img);
-        }
-
-        // Map source asset URLs to downloaded Telegram images.
-        // The uploaded asset_n names do not necessarily match
-        // the original source names, so keep their order.
-        const missingKeys = [];
+        const expectedKeys = [];
         const seen = new Set();
 
         for (const ev of events) {
-          if (
-            ev.plugin !== "dcn" ||
-            ev.data?.e !== "as"
-          ) {
+          if (ev.plugin !== "dcn" || ev.data?.e !== "as" || !ev.data?.u) {
             continue;
           }
-
-          const key = assetKey(ev.data?.u);
-
-          if (
-            key &&
-            !images.has(key) &&
-            !seen.has(key)
-          ) {
+          const key = assetKey(ev.data.u);
+          if (key && !seen.has(key)) {
             seen.add(key);
-            missingKeys.push(key);
+            expectedKeys.push(key);
           }
         }
 
-        missingKeys.forEach((key, index) => {
-          if (loaded[index] && !images.has(key)) {
-            images.set(key, loaded[index]);
+        // PDFs are not valid <img> sources. The streaming API now exposes
+        // signed JPEG previews of PDF pages under type "pdf_page".
+        // Only preload pages actually requested by the board timeline.
+        const entries = (manifest.slides || []).filter((entry) => {
+          if (!entry?.url || String(entry.name || "").toLowerCase().endsWith(".pdf")) {
+            return false;
           }
+          if (entry.type === "pdf_page") {
+            return expectedKeys.includes(String(entry.name || "").toLowerCase()) ||
+              Number(entry.page) === 1;
+          }
+          return true;
         });
+
+        // Keep requests bounded: a class may have dozens of PDF pages.
+        // The ordered result is important when mapping original board URLs
+        // to the separately uploaded numbered asset files.
+        const loaded = new Array(entries.length).fill(null);
+        let next = 0;
+        async function worker() {
+          while (!cancelled && next < entries.length) {
+            const i = next++;
+            const src = new URL(entries[i].url, base.origin).toString();
+            const img = await loadImage(src);
+            if (img) loaded[i] = img;
+          }
+        }
+        await Promise.all(
+          Array.from({ length: Math.min(4, entries.length) }, () => worker())
+        );
+        if (cancelled) return;
+
+        const images = new Map();
+        const fallback = [];
+        for (let i = 0; i < entries.length; i++) {
+          const img = loaded[i];
+          if (!img) continue;
+          const entry = entries[i];
+          const name = String(entry.name || entry.key || "").toLowerCase();
+          if (!images.has(name)) images.set(name, img);
+          const sourceKey = String(entry.source_key || "").toLowerCase();
+          if (sourceKey && !images.has(sourceKey)) images.set(sourceKey, img);
+          // Use the first PDF page as a fallback for a PDF attachment;
+          // do not assign page 20 to an unrelated image asset.
+          if (entry.type !== "pdf_page" || Number(entry.page) === 1) {
+            fallback.push(img);
+          }
+        }
+
+        let fallbackIndex = 0;
+        for (const key of expectedKeys) {
+          if (!images.has(key) && fallbackIndex < fallback.length) {
+            images.set(key, fallback[fallbackIndex++]);
+          }
+        }
+
+        // A board whose background attachments all failed must not turn
+        // the full lecture video into a tiny teacher-camera overlay.
+        // Standalone handwritten boards (no external assets) still work.
+        const attachmentsReady = expectedKeys.length === 0 ||
+          expectedKeys.some((key) => images.has(key));
+        if (!attachmentsReady) {
+          console.warn("Board attachments unavailable; retaining full video", {
+            lectureId, expected: expectedKeys.length, received: fallback.length,
+            zipError: manifest.zip_error || null
+          });
+          readyRef.current?.(false);
+          return;
+        }
 
         if (cancelled) return;
 

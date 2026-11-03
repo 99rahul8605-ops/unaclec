@@ -52,6 +52,9 @@ export default function CustomVideoPlayer({
 
   const [playing, setPlaying] = useState(false);
   const [boardReady, setBoardReady] = useState(false);
+  // A few source videos contain the whole screen rather than teacher-only
+  // footage. Allow the learner to switch without losing playback position.
+  const [boardMode, setBoardMode] = useState(true);
   const [cameraVisible, setCameraVisible] = useState(true);
   // TEACHER_CAM_DRAG_V3
   const [teacherCamPos, setTeacherCamPos] = useState({
@@ -337,6 +340,7 @@ export default function CustomVideoPlayer({
   };
 
   const expanded = landscape || fullscreen;
+  const boardDisplayed = Boolean(showSlides && boardReady && boardMode);
 
   return (
     <>
@@ -366,6 +370,29 @@ export default function CustomVideoPlayer({
         )}
 
         {boardReady && (
+          <button
+            type="button"
+            onClick={() => setBoardMode((v) => !v)}
+            style={{
+              position: "absolute",
+              top: expanded ? 12 : 10,
+              right: 10,
+              zIndex: 12,
+              border: "1px solid rgba(255,255,255,.3)",
+              borderRadius: 9,
+              padding: "7px 11px",
+              background: "rgba(0,0,0,.75)",
+              color: "#fff",
+              fontSize: 12,
+              fontWeight: 700,
+              cursor: "pointer"
+            }}
+          >
+            {boardDisplayed ? "Full Video" : "Board + Cam"}
+          </button>
+        )}
+
+        {boardDisplayed && (
           <button
             type="button"
             onClick={() => setCameraVisible((v) => !v)}
@@ -434,26 +461,26 @@ export default function CustomVideoPlayer({
           }}
           onError={onError}
           style={{
-            position: boardReady ? "absolute" : "relative",
-            top: boardReady ? `${teacherCamPos.y}%` : 0,
-            left: boardReady ? `${teacherCamPos.x}%` : 0,
-            width: boardReady ? "27%" : "100%",
-            height: boardReady ? "27%" : "100%",
+            position: boardDisplayed ? "absolute" : "relative",
+            top: boardDisplayed ? `${teacherCamPos.y}%` : 0,
+            left: boardDisplayed ? `${teacherCamPos.x}%` : 0,
+            width: boardDisplayed ? "27%" : "100%",
+            height: boardDisplayed ? "27%" : "100%",
             display: "block",
-            opacity: boardReady && !cameraVisible ? 0 : 1,
+            opacity: boardDisplayed && !cameraVisible ? 0 : 1,
             objectFit: "contain",
             background: "#000",
-            border: boardReady && cameraVisible
+            border: boardDisplayed && cameraVisible
               ? "2px solid #fff"
               : "none",
             boxSizing: "border-box",
-            borderRadius: boardReady ? 6 : 0,
-            zIndex: boardReady ? 3 : 0,
+            borderRadius: boardDisplayed ? 6 : 0,
+            zIndex: boardDisplayed ? 3 : 2,
             pointerEvents: "none"
           }}
         />
 
-        {boardReady && cameraVisible && (
+        {boardDisplayed && cameraVisible && (
           <div
             onPointerDown={teacherDragStart}
             onPointerMove={teacherDragMove}
