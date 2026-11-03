@@ -192,9 +192,13 @@ function createEngine(events, images) {
               )
             : assets.length;
 
+          const hasImageURL = typeof d.u === "string" && d.u.trim().length > 0;
+          // Blank whiteboard pages must never inherit a previously shown JPG.
+          // Keep the board colour and existing pen layer for this page.
           assets.splice(index, 0, {
-            key: assetKey(d.u),
-            bg: d.bc || (d.u ? "#202022" : "#FFFFFF"),
+            key: hasImageURL ? assetKey(d.u) : null,
+            hasImageURL,
+            bg: d.bc || (hasImageURL ? "#202022" : "#FFFFFF"),
           });
           break;
         }
@@ -313,7 +317,7 @@ function createEngine(events, images) {
 
   function render(ctx, showAnnotations = true) {
     const asset = assets[selected - 1];
-    const key = asset?.key || null;
+    const key = asset?.hasImageURL ? asset.key : null;
     const pdf = /^slide_\d+\.(jpg|jpeg|png|webp)$/i.test(
       key || ""
     );
@@ -324,9 +328,12 @@ function createEngine(events, images) {
       ? bg
       : (pdf ? "#202022" : "#FFFFFF");
 
+    // Explicitly clear the old frame, including when seeking back and forth
+    // between an image-backed page and a blank handwriting page.
+    ctx.clearRect(0, 0, W, H);
     ctx.fillRect(0, 0, W, H);
 
-    const image = images.get(key);
+    const image = key ? images.get(key) : null;
 
     if (image) {
       const scale = Math.min(
@@ -359,7 +366,18 @@ function createEngine(events, images) {
     }
   }
 
-  return { advance, render };
+  function inspect() {
+    const asset = assets[selected - 1];
+    return {
+      selected,
+      assetCount: assets.length,
+      hasImageURL: Boolean(asset?.hasImageURL),
+      imageKey: asset?.hasImageURL ? asset.key : null,
+      imageLoaded: Boolean(asset?.hasImageURL && images.has(asset.key)),
+    };
+  }
+
+  return { advance, render, inspect };
 }
 
 function loadImage(url) {
@@ -510,10 +528,19 @@ export default function SyncedBoard({
           }
         }
 
-        let fallbackIndex = 0;
+        // Old ZIPs can have generated extra_001.jpg names instead of the
+        // source URL basename. Match these ONLY to real URL-bearing board
+        // attachment events, never to blank boards or PDF page assets.
+        const usedExtraNames = new Set();
+        let directImageIndex = 0;
         for (const key of expectedKeys) {
-          if (!images.has(key) && fallbackIndex < fallback.length) {
-            images.set(key, fallback[fallbackIndex++]);
+          if (images.has(key) || /^slide_\d+\./i.test(key)) continue;
+          directImageIndex++;
+          const normalized = `extra_${String(directImageIndex).padStart(3, "0")}.jpg`;
+          const match = images.get(normalized) || images.get(normalized.replace(/\.jpg$/, ".png"));
+          if (match && !usedExtraNames.has(normalized)) {
+            images.set(key, match);
+            usedExtraNames.add(normalized);
           }
         }
 
@@ -542,6 +569,8 @@ export default function SyncedBoard({
 
         const engine = createEngine(events, images);
         engineRef.current = engine;
+        // Read-only troubleshooting without exposing signed URLs or tokens.
+        window.__lectureBoardState = () => engineRef.current?.inspect() || null;
 
         const video = videoRef?.current;
         engine.advance(video?.currentTime || 0);
@@ -577,6 +606,7 @@ export default function SyncedBoard({
       cancelled = true;
       cancelAnimationFrame(frame);
       engineRef.current = null;
+      delete window.__lectureBoardState;
     };
   }, [lectureId, playbackUrl, videoRef]);
 
