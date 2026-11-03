@@ -311,7 +311,7 @@ function createEngine(events, images) {
     previous = t;
   }
 
-  function render(ctx) {
+  function render(ctx, showAnnotations = true) {
     const asset = assets[selected - 1];
     const key = asset?.key || null;
     const pdf = /^slide_\d+\.(jpg|jpeg|png|webp)$/i.test(
@@ -347,14 +347,16 @@ function createEngine(events, images) {
       ctx.drawImage(image, x, y, width, height);
     }
 
-    const selectedLayer = layers.get(selected);
-
-    if (selectedLayer) {
-      ctx.drawImage(selectedLayer, 0, 0, W, H);
+    // Hide only pen strokes. Keep processing board events/timestamps so
+    // annotations reappear at the correct position when toggled back on.
+    if (showAnnotations) {
+      const selectedLayer = layers.get(selected);
+      if (selectedLayer) {
+        ctx.drawImage(selectedLayer, 0, 0, W, H);
+      }
+      const pending = active.get(selected);
+      if (pending) drawStroke(ctx, pending);
     }
-
-    const pending = active.get(selected);
-    if (pending) drawStroke(ctx, pending);
   }
 
   return { advance, render };
@@ -385,10 +387,16 @@ export default function SyncedBoard({
   playbackUrl,
   videoRef,
   onReady,
+  showAnnotations = true,
 }) {
   const canvasRef = useRef(null);
   const engineRef = useRef(null);
   const readyRef = useRef(onReady);
+  const annotationsRef = useRef(showAnnotations);
+
+  useEffect(() => {
+    annotationsRef.current = showAnnotations;
+  }, [showAnnotations]);
 
   useEffect(() => {
     readyRef.current = onReady;
@@ -537,7 +545,7 @@ export default function SyncedBoard({
 
         const video = videoRef?.current;
         engine.advance(video?.currentTime || 0);
-        engine.render(ctx);
+        engine.render(ctx, annotationsRef.current);
 
         readyRef.current?.(true);
 
@@ -550,7 +558,7 @@ export default function SyncedBoard({
             engineRef.current.advance(
               currentVideo.currentTime || 0
             );
-            engineRef.current.render(ctx);
+            engineRef.current.render(ctx, annotationsRef.current);
           }
 
           frame = requestAnimationFrame(tick);

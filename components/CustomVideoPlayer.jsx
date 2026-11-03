@@ -56,6 +56,7 @@ export default function CustomVideoPlayer({
   // footage. Allow the learner to switch without losing playback position.
   const [boardMode, setBoardMode] = useState(true);
   const [cameraVisible, setCameraVisible] = useState(true);
+  const [showAnnotations, setShowAnnotations] = useState(true);
   // TEACHER_CAM_DRAG_V3
   const [teacherCamPos, setTeacherCamPos] = useState({
     x: 70,
@@ -387,6 +388,7 @@ export default function CustomVideoPlayer({
             playbackUrl={src}
             videoRef={videoRef || fallbackRef}
             onReady={setBoardReady}
+            showAnnotations={showAnnotations}
           />
         )}
 
@@ -435,6 +437,31 @@ export default function CustomVideoPlayer({
             }}
           >
             {cameraVisible ? "Hide Cam" : "Show Cam"}
+          </button>
+        )}
+
+        {boardDisplayed && controlsVisible && (
+          <button
+            type="button"
+            onClick={() => setShowAnnotations((visible) => !visible)}
+            aria-label={showAnnotations ? "Hide annotations" : "Show annotations"}
+            aria-pressed={!showAnnotations}
+            style={{
+              position: "absolute",
+              top: expanded ? 12 : 10,
+              left: 105,
+              zIndex: 12,
+              border: "1px solid rgba(255,255,255,.3)",
+              borderRadius: 9,
+              padding: "7px 10px",
+              background: "rgba(0,0,0,.75)",
+              color: "#fff",
+              fontSize: 12,
+              fontWeight: 700,
+              cursor: "pointer"
+            }}
+          >
+            {showAnnotations ? "Hide Pen" : "Show Pen"}
           </button>
         )}
 
