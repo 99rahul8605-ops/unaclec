@@ -369,7 +369,7 @@ export default function CustomVideoPlayer({
           />
         )}
 
-        {boardReady && (
+        {boardReady && controlsVisible && (
           <button
             type="button"
             onClick={() => setBoardMode((v) => !v)}
@@ -392,7 +392,7 @@ export default function CustomVideoPlayer({
           </button>
         )}
 
-        {boardDisplayed && (
+        {boardDisplayed && controlsVisible && (
           <button
             type="button"
             onClick={() => setCameraVisible((v) => !v)}
