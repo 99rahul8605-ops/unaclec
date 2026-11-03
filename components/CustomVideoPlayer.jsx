@@ -142,6 +142,9 @@ export default function CustomVideoPlayer({
   const video = () => videoRef?.current || fallbackRef.current;
 
   const restoreLayout = useCallback(() => {
+    if (document.fullscreenElement === playerRef.current && document.exitFullscreen) {
+      document.exitFullscreen().catch(() => {});
+    }
     if (restoreRef.current) {
       restoreRef.current();
       restoreRef.current = null;
@@ -151,6 +154,16 @@ export default function CustomVideoPlayer({
     setFullscreen(false);
     setControlsVisible(true);
   }, []);
+
+  useEffect(() => {
+    function onFullscreenChange() {
+      if (!document.fullscreenElement && fullscreen) {
+        restoreLayout();
+      }
+    }
+    document.addEventListener("fullscreenchange", onFullscreenChange);
+    return () => document.removeEventListener("fullscreenchange", onFullscreenChange);
+  }, [fullscreen, restoreLayout]);
 
   const scheduleHide = useCallback(() => {
     if (hideTimerRef.current) {
@@ -310,6 +323,14 @@ export default function CustomVideoPlayer({
       document.body.style.overflow = oldOverflow;
     };
 
+    // DESKTOP_FULLSCREEN_API_FIX_V1
+    // CSS fixed positioning alone does not enter real laptop fullscreen.
+    if (mode === "fullscreen" && wrapper.requestFullscreen) {
+      wrapper.requestFullscreen().catch(() => {
+        setMessage("Browser blocked fullscreen. Try the fullscreen button again.");
+      });
+    }
+
     revealControls();
   }
 
@@ -369,7 +390,7 @@ export default function CustomVideoPlayer({
           />
         )}
 
-        {boardReady && controlsVisible && (
+        {boardReady && (
           <button
             type="button"
             onClick={() => setBoardMode((v) => !v)}
@@ -392,7 +413,7 @@ export default function CustomVideoPlayer({
           </button>
         )}
 
-        {boardDisplayed && controlsVisible && (
+        {boardDisplayed && (
           <button
             type="button"
             onClick={() => setCameraVisible((v) => !v)}

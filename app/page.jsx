@@ -23,6 +23,7 @@ import {
   Play,
   Save,
   Search,
+  Heart,
   Sparkles,
   Video
 } from "lucide-react";
@@ -77,6 +78,9 @@ export default function HomePage() {
   const [selectedSubject, setSelectedSubject] = useState(null);
   const [selectedLecture, setSelectedLecture] = useState(null);
 
+  // FAVORITE_BATCHES_V1 — saved per Telegram user on this device.
+  const [favoriteBatchIds, setFavoriteBatchIds] = useState([]);
+  const [batchView, setBatchView] = useState("all");
   const [search, setSearch] = useState("");
   const [tab, setTab] = useState("notes");
   const [notes, setNotes] = useState("");
@@ -316,8 +320,31 @@ export default function HomePage() {
     }
   ).length;
 
+  useEffect(() => {
+    if (user?.id == null) return;
+    try {
+      const stored = JSON.parse(localStorage.getItem(`favorite-batches:${user.id}`) || "[]");
+      setFavoriteBatchIds(Array.isArray(stored) ? stored.map(String) : []);
+    } catch {
+      setFavoriteBatchIds([]);
+    }
+  }, [user?.id]);
+
+  function toggleFavoriteBatch(id) {
+    if (user?.id == null) return;
+    const key = `favorite-batches:${user.id}`;
+    setFavoriteBatchIds(previous => {
+      const current = previous.includes(String(id))
+        ? previous.filter(value => value !== String(id))
+        : [...previous, String(id)];
+      try { localStorage.setItem(key, JSON.stringify(current)); } catch {}
+      return current;
+    });
+  }
+
   const filteredBatches = batches.filter(
     (batch) =>
+      (batchView !== "favorites" || favoriteBatchIds.includes(String(batch.id))) && (
       batch.name.toLowerCase().includes(
         search.toLowerCase()
       ) ||
@@ -325,7 +352,7 @@ export default function HomePage() {
         subject.name.toLowerCase().includes(
           search.toLowerCase()
         )
-      )
+      ))
   );
 
   const currentKey =
@@ -626,6 +653,7 @@ export default function HomePage() {
               setSelectedSubject(null);
               setSelectedLecture(null);
               clearPlayback();
+              setBatchView("all");
             }}
           >
             <Home size={18} />
@@ -639,10 +667,25 @@ export default function HomePage() {
               setSelectedSubject(null);
               setSelectedLecture(null);
               clearPlayback();
+              setBatchView("all");
             }}
           >
             <Layers3 size={18} />
             My Batches
+          </button>
+
+          <button
+            className={"nav-item" + (batchView === "favorites" && !selectedBatch ? " active" : "")}
+            onClick={() => {
+              setSelectedBatch(null);
+              setSelectedSubject(null);
+              setSelectedLecture(null);
+              clearPlayback();
+              setBatchView("favorites");
+            }}
+          >
+            <Heart size={18} />
+            Favorite Batches
           </button>
         </div>
 
@@ -759,7 +802,7 @@ export default function HomePage() {
                       <span className="section-kicker">
                         YOUR COLLECTION
                       </span>
-                      <h2>Explore Batches</h2>
+                      <h2>{batchView === "favorites" ? "Favorite Batches" : "Explore Batches"}</h2>
                     </div>
 
                     <div className="search">
@@ -779,17 +822,19 @@ export default function HomePage() {
                       <BookOpen size={38} />
                       <h3>No batches available</h3>
                       <p>
-                        Your administrator can publish
-                        batches to this library.
+                        {batchView === "favorites"
+                          ? "Tap the heart on a batch to add it here."
+                          : "Your administrator can publish batches to this library."}
                       </p>
                     </div>
                   ) : (
                     <div className="batch-grid">
                       {filteredBatches.map(
                         (batch, index) => (
+                          <div key={batch.id} style={{ position: "relative", minWidth: 0 }}>
                           <button
                             className="batch-card"
-                            key={batch.id}
+                            style={{ width: "100%", height: "100%" }}
                             onClick={() =>
                               openBatch(batch)
                             }
@@ -839,6 +884,24 @@ export default function HomePage() {
                               </div>
                             </div>
                           </button>
+                          <button
+                            type="button"
+                            aria-label={favoriteBatchIds.includes(String(batch.id)) ? "Remove from favorites" : "Add to favorites"}
+                            aria-pressed={favoriteBatchIds.includes(String(batch.id))}
+                            title={favoriteBatchIds.includes(String(batch.id)) ? "Remove favorite" : "Add favorite"}
+                            onClick={() => toggleFavoriteBatch(batch.id)}
+                            style={{
+                              position: "absolute", top: 12, right: 12,
+                              zIndex: 3, border: "1px solid rgba(255,255,255,.35)",
+                              borderRadius: "50%", width: 40, height: 40,
+                              display: "grid", placeItems: "center", cursor: "pointer",
+                              background: "rgba(14,18,30,.80)",
+                              color: favoriteBatchIds.includes(String(batch.id)) ? "#fb7185" : "#fff"
+                            }}
+                          >
+                            <Heart size={21} fill={favoriteBatchIds.includes(String(batch.id)) ? "currentColor" : "none"} />
+                          </button>
+                          </div>
                         )
                       )}
                     </div>
