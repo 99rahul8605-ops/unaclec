@@ -126,7 +126,7 @@ function drawStroke(ctx, op) {
   ctx.restore();
 }
 
-function createEngine(events, images) {
+function createEngine(events, images, resolveAssetKey = assetKey) {
   let assets = [];
   let selected = 1;
   let color = "#EB3C24";
@@ -196,7 +196,7 @@ function createEngine(events, images) {
           // Blank whiteboard pages must never inherit a previously shown JPG.
           // Keep the board colour and existing pen layer for this page.
           assets.splice(index, 0, {
-            key: hasImageURL ? assetKey(d.u) : null,
+            key: hasImageURL ? resolveAssetKey(d.u) : null,
             hasImageURL,
             bg: d.bc || (hasImageURL ? "#202022" : "#FFFFFF"),
           });
@@ -320,7 +320,7 @@ function createEngine(events, images) {
     const key = asset?.hasImageURL ? asset.key : null;
     const pdf = /^slide_\d+\.(jpg|jpeg|png|webp)$/i.test(
       key || ""
-    );
+    ) || /[?&]page=\d+/i.test(key || "");
 
     const bg = asset?.bg || "#FFFFFF";
 
@@ -548,7 +548,11 @@ export default function SyncedBoard({
         // the full lecture video into a tiny teacher-camera overlay.
         // Standalone handwritten boards (no external assets) still work.
         const attachmentsReady = expectedKeys.length === 0 ||
-          expectedKeys.some((key) => images.has(key));
+          expectedKeys.some((key) => images.has(key)) ||
+          // New StudyUK ZIPs use the exact Board URL as the image lookup
+          // key; old ZIPs continue to use slide_NNN or URL basenames.
+          events.some((ev) => ev.plugin === "dcn" && ev.data?.e === "as" &&
+            ev.data?.u && images.has(String(ev.data.u).toLowerCase()));
         if (!attachmentsReady) {
           console.warn("Board attachments unavailable; retaining full video", {
             lectureId, expected: expectedKeys.length, received: fallback.length,
@@ -567,7 +571,13 @@ export default function SyncedBoard({
           throw new Error("Board canvas/events unavailable");
         }
 
-        const engine = createEngine(events, images);
+        // New ZIPs provide exact Board URL -> image mappings. Legacy
+        // ZIPs still use the historical slide_NNN/basename resolver.
+        const resolveAssetKey = (url) => {
+          const exact = String(url || "").toLowerCase();
+          return images.has(exact) ? exact : assetKey(url);
+        };
+        const engine = createEngine(events, images, resolveAssetKey);
         engineRef.current = engine;
         // Read-only troubleshooting without exposing signed URLs or tokens.
         window.__lectureBoardState = () => engineRef.current?.inspect() || null;

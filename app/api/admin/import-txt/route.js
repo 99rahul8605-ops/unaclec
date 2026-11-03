@@ -39,7 +39,7 @@ export async function POST(request) {
     return Response.json(
       {
         error:
-          "No lectures found. The file must contain BATCH:, SUBJECT:, LECTURE: and WATCH_URL: lines."
+          "No lectures found. Required: legacy BATCH/SUBJECT/LECTURE/WATCH_URL or StudyUK COURSE/LECTURE/VIDEO_URL."
       },
       { status: 400 }
     );
