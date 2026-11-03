@@ -4,7 +4,7 @@ import { useEffect, useRef } from "react";
 
 const W = 1280;
 const H = 720;
-const PDF_W = 0.60;
+const PDF_W = 1.0;
 const PEN = 3;
 
 function flatten(value, out) {
@@ -331,7 +331,7 @@ function createEngine(events, images) {
     if (image) {
       const scale = Math.min(
         (W * (pdf ? PDF_W : 0.96)) / image.width,
-        (H * (pdf ? 0.995 : 0.96)) / image.height
+        (H * (pdf ? 1.0 : 0.96)) / image.height
       );
 
       const width = image.width * scale;
