@@ -138,6 +138,15 @@ export default function HomePage() {
         try {
           webApp.ready();
           webApp.expand();
+          // Request Telegram Mini App fullscreen where the client supports it.
+          // expand() alone does not remove Telegram Desktop's popup chrome.
+          try {
+            if (typeof webApp.requestFullscreen === "function") {
+              webApp.requestFullscreen();
+            }
+          } catch (fullscreenError) {
+            console.info("Telegram fullscreen unavailable:", fullscreenError);
+          }
           webApp.setHeaderColor?.("#101322");
           webApp.setBackgroundColor?.("#090c16");
         } catch (error) {
