@@ -397,7 +397,7 @@ export default function CustomVideoPlayer({
             style={{
               position: "absolute",
               top: expanded ? 12 : 10,
-              right: 10,
+              right: 64, // Keep clear of Telegram Mini App close (X) control.
               zIndex: 12,
               border: "1px solid rgba(255,255,255,.3)",
               borderRadius: 9,
