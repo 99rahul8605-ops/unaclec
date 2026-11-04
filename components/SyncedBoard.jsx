@@ -5,7 +5,7 @@ import { useEffect, useRef } from "react";
 const W = 1280;
 const H = 720;
 const PDF_W = 1.0;
-const PEN = 3;
+const PEN = 2.35; // thinner pen; original 3px
 
 function flatten(value, out) {
   if (Array.isArray(value)) {
@@ -40,6 +40,22 @@ function assetKey(url) {
   } catch {
     return text.split("?")[0].split("/").pop().toLowerCase();
   }
+}
+
+// Identity of a PDF page: PDF path + page number, never page number alone.
+// Ignore short-lived `t` query values, but retain the source document.
+function pdfIdentity(url) {
+  try {
+    const u = new URL(String(url));
+    const page = u.searchParams.get("page");
+    if (!page || !/^\d+$/.test(page) || !/\.pdf$/i.test(u.pathname)) return null;
+    return `${u.origin.toLowerCase()}${u.pathname.toLowerCase()}?page=${Number(page)}`;
+  } catch { return null; }
+}
+
+function pdfSource(url) {
+  const identity = pdfIdentity(url);
+  return identity ? identity.split("?page=")[0] : null;
 }
 
 function point(p) {
@@ -111,7 +127,7 @@ function drawStroke(ctx, op) {
     ctx.lineTo(bx, by);
     ctx.stroke();
   } else if (pts.length === 1) {
-    ctx.arc(ax, ay, 1.8, 0, Math.PI * 2);
+    ctx.arc(ax, ay, 1.15, 0, Math.PI * 2);
     ctx.fill();
   } else {
     ctx.moveTo(ax, ay);
@@ -135,6 +151,8 @@ function createEngine(events, images, resolveAssetKey = assetKey) {
   let layers = new Map();
   let histories = new Map();
   let active = new Map();
+  let boardViews = new Map();
+  let deletedIds = new Set();
 
   let pos = 0;
   let previous = -1;
@@ -164,6 +182,8 @@ function createEngine(events, images, resolveAssetKey = assetKey) {
     layers = new Map();
     histories = new Map();
     active = new Map();
+    boardViews = new Map();
+    deletedIds = new Set();
 
     pos = 0;
     previous = -1;
@@ -175,6 +195,39 @@ function createEngine(events, images, resolveAssetKey = assetKey) {
 
     for (const op of history(id)) {
       drawStroke(ctx, op);
+    }
+  }
+
+  // Inserting a slide shifts the existing board positions. All associated
+  // pen layers, histories, pending strokes and viewport state must shift too.
+  function shiftBoardMap(map, at) {
+    const next = new Map();
+    for (const [key, value] of map) {
+      const n = Number(key);
+      next.set(Number.isInteger(n) && n >= at ? n + 1 : key, value);
+    }
+    return next;
+  }
+
+  function deleteObjectIds(payload) {
+    const raw = Array.isArray(payload?.ids) ? payload.ids :
+      Array.isArray(payload?.oids) ? payload.oids : [];
+    const ids = new Set(raw.map(item => {
+      if (typeof item === "string" || typeof item === "number") return String(item);
+      if (item && typeof item === "object") return String(item.oid ?? item.id ?? "");
+      return "";
+    }).filter(Boolean));
+    if (!ids.size) return;
+    for (const oid of ids) deletedIds.add(oid);
+    for (const [board, strokes] of histories) {
+      const kept = strokes.filter(op => !op.oid || !ids.has(String(op.oid)));
+      if (kept.length !== strokes.length) {
+        histories.set(board, kept);
+        rebuild(board);
+      }
+    }
+    for (const [board, op] of active) {
+      if (op?.oid && ids.has(String(op.oid))) active.delete(board);
     }
   }
 
@@ -195,9 +248,16 @@ function createEngine(events, images, resolveAssetKey = assetKey) {
           const hasImageURL = typeof d.u === "string" && d.u.trim().length > 0;
           // Blank whiteboard pages must never inherit a previously shown JPG.
           // Keep the board colour and existing pen layer for this page.
+          const insertedAt = index + 1;
+          layers = shiftBoardMap(layers, insertedAt);
+          histories = shiftBoardMap(histories, insertedAt);
+          active = shiftBoardMap(active, insertedAt);
+          boardViews = shiftBoardMap(boardViews, insertedAt);
+          if (assets.length && selected >= insertedAt) selected++;
           assets.splice(index, 0, {
             key: hasImageURL ? resolveAssetKey(d.u) : null,
             hasImageURL,
+            isPdf: Boolean(pdfIdentity(d.u)),
             bg: d.bc || (hasImageURL ? "#202022" : "#FFFFFF"),
           });
           break;
@@ -230,6 +290,30 @@ function createEngine(events, images, resolveAssetKey = assetKey) {
 
     const kind = inner.e;
     const p = point(inner.p);
+    if (kind === "zm") {
+      const zoom = Number(inner.v);
+      if (Number.isFinite(zoom) && zoom > 0 && zoom <= 10) {
+        boardViews.set(Number(id), {
+          ...(boardViews.get(Number(id)) || { zoom: 1, panX: 0, panY: 0 }),
+          zoom,
+        });
+      }
+      return;
+    }
+    if (kind === "pn") {
+      const v = inner.v;
+      if (v && Number.isFinite(Number(v.x)) && Number.isFinite(Number(v.y))) {
+        boardViews.set(Number(id), {
+          ...(boardViews.get(Number(id)) || { zoom: 1, panX: 0, panY: 0 }),
+          panX: Number(v.x), panY: Number(v.y),
+        });
+      }
+      return;
+    }
+    if (kind === "dlos") {
+      deleteObjectIds(inner);
+      return;
+    }
 
     if (kind === "ea") {
       histories.set(id, []);
@@ -256,6 +340,7 @@ function createEngine(events, images, resolveAssetKey = assetKey) {
           tool,
           color,
           points: [p],
+          oid: inner.p?.oid ?? inner.oid ?? null,
         });
       }
       return;
@@ -263,7 +348,10 @@ function createEngine(events, images, resolveAssetKey = assetKey) {
 
     if (kind === "m") {
       const stroke = active.get(id);
-      if (stroke && p) stroke.points.push(p);
+      if (stroke) {
+        if (!stroke.oid && inner.p?.oid) stroke.oid = inner.p.oid;
+        if (p) stroke.points.push(p);
+      }
       return;
     }
 
@@ -271,6 +359,7 @@ function createEngine(events, images, resolveAssetKey = assetKey) {
       const stroke = active.get(id);
 
       if (stroke) {
+        if (!stroke.oid && inner.p?.oid) stroke.oid = inner.p.oid;
         if (p) {
           const last = stroke.points[stroke.points.length - 1];
 
@@ -283,7 +372,7 @@ function createEngine(events, images, resolveAssetKey = assetKey) {
           }
         }
 
-        if (stroke.points.length) {
+        if (stroke.points.length && !(stroke.oid && deletedIds.has(String(stroke.oid)))) {
           history(id).push(stroke);
           drawStroke(
             layer(id).getContext("2d"),
@@ -327,7 +416,7 @@ function createEngine(events, images, resolveAssetKey = assetKey) {
     const key = asset?.hasImageURL ? asset.key : null;
     const pdf = /^slide_\d+\.(jpg|jpeg|png|webp)$/i.test(
       key || ""
-    ) || /[?&]page=\d+/i.test(key || "");
+    ) || Boolean(asset?.isPdf);
 
     const bg = asset?.bg || "#FFFFFF";
 
@@ -341,6 +430,16 @@ function createEngine(events, images, resolveAssetKey = assetKey) {
     ctx.fillRect(0, 0, W, H);
 
     const image = key ? images.get(key) : null;
+    const view = boardViews.get(selected) || { zoom: 1, panX: 0, panY: 0 };
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, 0, W, H);
+    ctx.clip();
+    // Same JSON viewport on image, saved pen and active pen.
+    ctx.translate(W / 2 + view.panX * W * view.zoom,
+                  H / 2 + view.panY * H * view.zoom);
+    ctx.scale(view.zoom, view.zoom);
+    ctx.translate(-W / 2, -H / 2);
 
     if (image) {
       const scale = Math.min(
@@ -371,6 +470,7 @@ function createEngine(events, images, resolveAssetKey = assetKey) {
       const pending = active.get(selected);
       if (pending) drawStroke(ctx, pending);
     }
+    ctx.restore();
   }
 
   function inspect() {
@@ -478,12 +578,23 @@ export default function SyncedBoard({
 
         const expectedKeys = [];
         const seen = new Set();
+        const pdfSources = new Set();
+        const pageOwners = new Map();
+        let firstPdfSource = null;
 
         for (const ev of events) {
           if (ev.plugin !== "dcn" || ev.data?.e !== "as" || !ev.data?.u) {
             continue;
           }
           const key = assetKey(ev.data.u);
+          const source = pdfSource(ev.data.u);
+          if (source) {
+            if (!firstPdfSource) firstPdfSource = source;
+            pdfSources.add(source);
+            const page = Number(new URL(ev.data.u).searchParams.get("page"));
+            if (!pageOwners.has(page)) pageOwners.set(page, new Set());
+            pageOwners.get(page).add(source);
+          }
           if (key && !seen.has(key)) {
             seen.add(key);
             expectedKeys.push(key);
@@ -498,8 +609,7 @@ export default function SyncedBoard({
             return false;
           }
           if (entry.type === "pdf_page") {
-            return expectedKeys.includes(String(entry.name || "").toLowerCase()) ||
-              Number(entry.page) === 1;
+            return expectedKeys.includes(String(entry.name || "").toLowerCase());
           }
           return true;
         });
@@ -523,7 +633,6 @@ export default function SyncedBoard({
         if (cancelled) return;
 
         const images = new Map();
-        const fallback = [];
         for (let i = 0; i < entries.length; i++) {
           const img = loaded[i];
           if (!img) continue;
@@ -532,11 +641,8 @@ export default function SyncedBoard({
           if (!images.has(name)) images.set(name, img);
           const sourceKey = String(entry.source_key || "").toLowerCase();
           if (sourceKey && !images.has(sourceKey)) images.set(sourceKey, img);
-          // Use the first PDF page as a fallback for a PDF attachment;
-          // do not assign page 20 to an unrelated image asset.
-          if (entry.type !== "pdf_page" || Number(entry.page) === 1) {
-            fallback.push(img);
-          }
+          const identity = pdfIdentity(sourceKey);
+          if (identity && !images.has(identity)) images.set(identity, img);
         }
 
         // Old ZIPs can have generated extra_001.jpg names instead of the
@@ -555,18 +661,22 @@ export default function SyncedBoard({
           }
         }
 
+        // Each PDF URL + page is a separate logical asset. If multiple
+        // source PDFs overlap, unnamed slide_NNN entries are ambiguous:
+        // don't show a confidently WRONG page. Explicit URL mappings win.
+        if (pdfSources.size > 1) {
+          console.warn("Multiple PDF sources; numbered legacy ZIP pages cannot establish a unique source-page mapping", { lectureId, sources: pdfSources.size });
+        }
+
         // A board whose background attachments all failed must not turn
         // the full lecture video into a tiny teacher-camera overlay.
         // Standalone handwritten boards (no external assets) still work.
-        const attachmentsReady = expectedKeys.length === 0 ||
-          expectedKeys.some((key) => images.has(key)) ||
-          // New StudyUK ZIPs use the exact Board URL as the image lookup
-          // key; old ZIPs continue to use slide_NNN or URL basenames.
-          events.some((ev) => ev.plugin === "dcn" && ev.data?.e === "as" &&
-            ev.data?.u && images.has(String(ev.data.u).toLowerCase()));
+        // A lecture with some valid pages must not be disabled just because
+        // other pages (or another PDF source) are absent in a legacy ZIP.
+        const attachmentsReady = expectedKeys.length === 0 || images.size > 0;
         if (!attachmentsReady) {
           console.warn("Board attachments unavailable; retaining full video", {
-            lectureId, expected: expectedKeys.length, received: fallback.length,
+            lectureId, expected: expectedKeys.length, received: images.size,
             zipError: manifest.zip_error || null
           });
           readyRef.current?.(false);
@@ -584,10 +694,37 @@ export default function SyncedBoard({
 
         // New ZIPs provide exact Board URL -> image mappings. Legacy
         // ZIPs still use the historical slide_NNN/basename resolver.
+        let unresolvedPdfPages = 0;
+        let legacyPdfPages = 0;
         const resolveAssetKey = (url) => {
           const exact = String(url || "").toLowerCase();
-          return images.has(exact) ? exact : assetKey(url);
+          if (images.has(exact)) return exact;
+          const identity = pdfIdentity(url);
+          if (identity) {
+            if (images.has(identity)) return identity;
+            const source = pdfSource(url);
+            const legacy = assetKey(url);
+            const page = Number(new URL(url).searchParams.get("page"));
+            const owners = pageOwners.get(page);
+            // Compatibility for old ZIPs with no original source metadata:
+            // numbers may describe only the first PDF. Never reuse the same
+            // page number for a second PDF document.
+            const allowedLegacy = pdfSources.size === 1 ||
+              (source === firstPdfSource && owners?.size === 1);
+            if (allowedLegacy && images.has(legacy)) {
+              legacyPdfPages++;
+              return legacy;
+            }
+            unresolvedPdfPages++;
+            return identity; // unique, not falsely identified with other PDFs
+          }
+          return assetKey(url);
         };
+        if (pdfSources.size > 1) {
+          console.warn("Legacy ZIP PDF pages are ambiguous across sources; exact URL mappings preferred", {
+            lectureId, sources: pdfSources.size
+          });
+        }
         const engine = createEngine(events, images, resolveAssetKey);
         engineRef.current = engine;
         // Read-only troubleshooting without exposing signed URLs or tokens.
