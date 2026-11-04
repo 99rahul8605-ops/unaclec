@@ -58,6 +58,127 @@ function pdfSource(url) {
   return identity ? identity.split("?page=")[0] : null;
 }
 
+// Verified legacy ZIP source restoration (Employee Costing L5).
+// This is deliberately scoped to one original archive layout and its source
+// documents. Other lectures continue to require exact mapping metadata.
+const COSTING_FIRST_PDF =
+  "https://uadoc.uacdn.net/common/tbrpfcj7qo/1783649148ixw5zc.pdf";
+const COSTING_SECOND_PDF =
+  "https://uadoc.uacdn.net/common/tbrpfcj7qo/1783649173efzbr6.pdf";
+const COSTING_COVER = "c5c1ecd2-7c03-11f1-84f5-7e939c2edd03.jpg";
+const COSTING_ORIGINAL_FILES = [
+  "3_asset_1.jpg", "4_asset_2.jpg",
+  ...Array.from({length: 21}, (_, i) => `${i + 5}_asset_${i + 3}.pdf`),
+  "26_asset_24.jpeg", "27_asset_25.jpg",
+  "28_asset_26.pdf", "29_asset_27.pdf", "30_asset_28.pdf",
+];
+
+function restoreKnownCostingPages(entries, events, images) {
+  const allNames = entries.map(e => String(e.original_name || "").toLowerCase());
+  // The same name pattern alone is insufficient: require 28 exact members,
+  // BOTH original PDF IDs and this lecture's unique cover JPG reference.
+  const knownNames = allNames.length === COSTING_ORIGINAL_FILES.length &&
+    allNames.every((name, i) => name === COSTING_ORIGINAL_FILES[i]);
+  if (!knownNames) return { active: false, mapped: 0 };
+
+  const urls = new Set(events.filter(e => e.plugin === "dcn" &&
+    e.data?.e === "as" && typeof e.data.u === "string")
+    .map(e => e.data.u.toLowerCase()));
+  const sources = new Set([...urls].map(pdfSource).filter(Boolean));
+  if (!sources.has(COSTING_FIRST_PDF) ||
+      !sources.has(COSTING_SECOND_PDF) ||
+      ![...urls].some(u => u.includes(COSTING_COVER))) {
+    return { active: false, mapped: 0 };
+  }
+
+  // Original filenames 5_asset_3.pdf .. 17_asset_15.pdf correspond to
+  // numbered ZIP slide_001 .. slide_013, in these two distinct PDF runs.
+  // PDF1: five pages; PDF2: eight pages. Preserve existing exact mappings.
+  let mapped = 0;
+  for (const [source, count, offset] of [
+    [COSTING_FIRST_PDF, 5, 0],
+    [COSTING_SECOND_PDF, 8, 5],
+  ]) {
+    for (let page = 1; page <= count; page++) {
+      const originalFilename = `${page + offset + 4}_asset_${page + offset + 2}.pdf`;
+      const entry = entries.find(e =>
+        String(e.original_name || "").toLowerCase() === originalFilename);
+      const key = String(entry?.name || "").toLowerCase();
+      const image = images.get(key);
+      const identity = `${source}?page=${page}`;
+      if (image && !images.has(identity)) {
+        images.set(identity, image);
+        mapped++;
+      }
+    }
+  }
+
+  const coverEntry = entries.find(e =>
+    String(e.original_name || "").toLowerCase() === "3_asset_1.jpg");
+  const coverImage = images.get(String(coverEntry?.name || "").toLowerCase());
+  if (coverImage) images.set(COSTING_COVER, coverImage);
+  return { active: true, mapped };
+}
+
+// Generic repair for legacy archives made from sequential `N_asset_M.pdf`
+// exports. Infer only COMPLETE, contiguous PDF upload batches (pages 1..N).
+// Never extend a batch into an incomplete next PDF: that would assign wrong pages.
+// Explicit `_slides_mapping.json` identities always win.
+function inferCompletePdfBatches(entries, events, images) {
+  const pdfRuns = [];
+  const seen = new Set();
+  for (const event of events) {
+    if (event.plugin !== "dcn" || event.data?.e !== "as") continue;
+    const source = pdfSource(event.data.u);
+    if (!source) continue;
+    let run = pdfRuns.find(r => r.source === source);
+    if (!run) {
+      run = { source, pages: new Set(), repeats: false };
+      pdfRuns.push(run);
+    }
+    const page = Number(new URL(event.data.u).searchParams.get("page"));
+    if (run.pages.has(page)) run.repeats = true;
+    run.pages.add(page);
+  }
+
+  // Only original exporter members (not renamed ZIP positions) establish
+  // sequential asset numbers. Sort by the exporter asset id, not alphabetically.
+  const pdfEntries = entries.map(entry => {
+    const m = String(entry.original_name || "").match(/^(\d+)_asset_(\d+)\.pdf$/i);
+    return m ? { entry, serial: Number(m[2]), ordinal: Number(m[1]) } : null;
+  }).filter(Boolean).sort((a, b) => a.serial - b.serial);
+  let mapped = 0, cursor = 0;
+  for (const run of pdfRuns) {
+    const count = run.pages.size;
+    if (!count || run.repeats ||
+        !Array.from({length: count}, (_, i) => i + 1).every(x => run.pages.has(x))) break;
+    const batch = pdfEntries.slice(cursor, cursor + count);
+    if (batch.length !== count) break;
+    // A gap means the export was incomplete. Stop rather than shifting every
+    // subsequent PDF's pages to an incorrect source.
+    if (!batch.every((x, i) => i === 0 ||
+        (x.serial === batch[i-1].serial + 1 &&
+         x.ordinal === batch[i-1].ordinal + 1))) break;
+    if (cursor > 0 && (batch[0].serial !== pdfEntries[cursor-1].serial + 1 ||
+                       batch[0].ordinal !== pdfEntries[cursor-1].ordinal + 1)) break;
+    for (let page = 1; page <= count; page++) {
+      const entry = batch[page-1].entry;
+      const key = String(entry.name || "").toLowerCase();
+      const identity = `${run.source}?page=${page}`;
+      const image = images.get(key);
+      if (image && !images.has(identity)) {
+        images.set(identity, image);
+        mapped++;
+      }
+    }
+    cursor += count;
+  }
+  return { inferred: mapped, batches: cursor ? pdfRuns.filter((_,i) =>
+    pdfRuns.slice(0,i+1).reduce((n,r)=>n+r.pages.size,0) <= cursor).length : 0,
+    stoppedBefore: cursor < pdfEntries.length ? pdfEntries[cursor]?.entry?.original_name : null,
+    mode: "legacy-export-order-inference-not-verified" };
+}
+
 function point(p) {
   if (!p) return null;
 
@@ -256,6 +377,7 @@ function createEngine(events, images, resolveAssetKey = assetKey) {
           if (assets.length && selected >= insertedAt) selected++;
           assets.splice(index, 0, {
             key: hasImageURL ? resolveAssetKey(d.u) : null,
+            source: hasImageURL ? d.u : null,
             hasImageURL,
             isPdf: Boolean(pdfIdentity(d.u)),
             bg: d.bc || (hasImageURL ? "#202022" : "#FFFFFF"),
@@ -481,6 +603,10 @@ function createEngine(events, images, resolveAssetKey = assetKey) {
       hasImageURL: Boolean(asset?.hasImageURL),
       imageKey: asset?.hasImageURL ? asset.key : null,
       imageLoaded: Boolean(asset?.hasImageURL && images.has(asset.key)),
+      imageWidth: asset?.key && images.get(asset.key)?.naturalWidth || 0,
+      imageHeight: asset?.key && images.get(asset.key)?.naturalHeight || 0,
+      sourcePage: pdfIdentity(asset?.source) ||
+        (asset?.source ? String(asset.source).split("/").pop().split("?")[0] : null),
     };
   }
 
@@ -643,6 +769,23 @@ export default function SyncedBoard({
           if (sourceKey && !images.has(sourceKey)) images.set(sourceKey, img);
           const identity = pdfIdentity(sourceKey);
           if (identity && !images.has(identity)) images.set(identity, img);
+        }
+
+        // Test-player parity: restore exact source PDF/page aliases for the
+        // previously verified 28-entry Employee Costing legacy ZIP.
+        const costingRestore = restoreKnownCostingPages(entries, events, images);
+        if (costingRestore.active) {
+          console.info("Employee Costing asset restore", costingRestore);
+        }
+
+        // Source-aware aliases for legacy exports, across ALL lectures.
+        // Only full sequential PDF batches are inferred. Incomplete batches
+        // remain unresolved rather than getting a false page mapping.
+        const inferred = inferCompletePdfBatches(entries, events, images);
+        if (inferred.inferred) {
+          console.info("Legacy PDF batch asset mapping (inferred, not verified)", {
+            lectureId, ...inferred
+          });
         }
 
         // Old ZIPs can have generated extra_001.jpg names instead of the

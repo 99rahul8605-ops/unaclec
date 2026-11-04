@@ -5,7 +5,8 @@ Usage:
   python3 repair_lecture_slides_improved.py Lecture_Slides.zip 2_board.json repaired.zip
   python3 repair_lecture_slides_improved.py Lecture_Slides.zip 2_board.json repaired.zip --mapping mapping.json
 
-No source guessing: ZIP sequence, asset_N, or equal file counts do not prove URL->image matches.
+Complete contiguous legacy PDF batches can be inferred from exporter order. This is
+heuristic (not verified); incomplete batches remain unresolved. Use --strict to disable.
 Mapping JSON: {"4_asset_2.pdf":"https://.../document.pdf?page=3&t=..."}
 Output keeps original image bytes/names and adds _slides_mapping.json + _repair_report.json.
 """
@@ -54,7 +55,51 @@ def detect(raw):
     return 'unknown'
 
 
-def repair(old, board, target, mapping_file=None):
+def infer_complete_batches(events, files, already):
+    """Heuristic: only full 1..N source batches paired with consecutive exporter IDs."""
+    runs = []
+    for ev in events:
+        d = ev.get('data') or {}
+        if ev.get('plugin') != 'dcn' or d.get('e') != 'as' or not d.get('u'):
+            continue
+        key = identity(d['u'])
+        if not key or '?page=' not in key:
+            continue
+        source, page = key.rsplit('?page=', 1)
+        if not runs or runs[-1]['source'] != source:
+            runs.append({'source': source, 'pages': set(), 'repeats': False})
+        if int(page) in runs[-1]['pages']:
+            runs[-1]['repeats'] = True
+        runs[-1]['pages'].add(int(page))
+    numbered = []
+    for name in files:
+        m = re.match(r'^(\d+)_asset_(\d+)\.pdf$',Path(name).name,re.I)
+        if m:
+            numbered.append((int(m[2]),int(m[1]),name))
+    numbered.sort()
+    found = {}
+    offset = 0
+    for run in runs:
+        size = len(run['pages'])
+        if (not size or run['repeats'] or run['pages'] != set(range(1,size+1))
+                or offset+size > len(numbered)):
+            break
+        batch = numbered[offset:offset+size]
+        if any((batch[i][0] != batch[i-1][0]+1 or batch[i][1] != batch[i-1][1]+1)
+               for i in range(1,len(batch))):
+            break
+        if offset and (batch[0][0] != numbered[offset-1][0]+1 or
+                       batch[0][1] != numbered[offset-1][1]+1):
+            break
+        for page,(_,__,filename) in enumerate(batch,1):
+            key = f"{run['source']}?page={page}"
+            if filename not in already and key not in already.values():
+                found[filename] = key
+        offset += size
+    return found
+
+
+def repair(old, board, target, mapping_file=None, strict=False):
     events = sorted(flatten(json.loads(Path(board).read_text(encoding='utf-8-sig'))),
                     key=lambda e: (float(e.get('p_time',0)), int(e.get('id',0))))
     refs = {}
@@ -97,15 +142,20 @@ def repair(old, board, target, mapping_file=None):
             else:
                 unmatched.append({'file':item.filename,'reason':'source URL/page not provable from ZIP filename'})
 
+    inferred = {} if strict else infer_complete_batches(events, contents, matched)
+    matched.update(inferred)
+    unmatched = [item for item in unmatched if item['file'] not in inferred]
     hashes = [names for names in duplicate.values() if len(names) > 1]
     report = {
         'total_json_asset_references':len(refs),
         'zip_media_files':len(matched)+len(unmatched),
-        'verified_mapping_count':len(matched),
+        'verified_mapping_count':len(matched)-len(inferred),
+        'inferred_mapping_count':len(inferred),
+        'inferred_pairs':inferred,
         'unresolved_zip_files':unmatched,
         'unresolved_json_references': sorted(set(refs)-set(matched.values())),
         'identical_file_groups':hashes,
-        'warning':'Unresolved entries are deliberately NOT assigned by ZIP order or page number. This avoids false slide matches.'
+        'warning':'Inferred full PDF batches rely on legacy exporter order and are NOT verified visual matches. Incomplete batches stay unresolved; --strict disables all inference.'
     }
     with zipfile.ZipFile(target,'w',compression=zipfile.ZIP_DEFLATED) as dst:
         for filename,raw in contents.items(): dst.writestr(filename,raw)
@@ -123,7 +173,8 @@ if __name__=='__main__':
     ap.add_argument('board')
     ap.add_argument('output')
     ap.add_argument('--mapping',help='Optional verified filename-to-URL JSON')
+    ap.add_argument('--strict',action='store_true',help='Never infer ZIP exporter order; only verified mappings')
     args=ap.parse_args()
-    result=repair(args.zip,args.board,args.output,args.mapping)
+    result=repair(args.zip,args.board,args.output,args.mapping,args.strict)
     print(json.dumps({k:v if not isinstance(v,list) else len(v) for k,v in result.items()},indent=2))
     print('Written:',args.output)
