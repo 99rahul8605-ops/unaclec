@@ -124,6 +124,51 @@ function restoreKnownCostingPages(entries, events, images) {
 // exports. Infer only COMPLETE, contiguous PDF upload batches (pages 1..N).
 // Never extend a batch into an incomplete next PDF: that would assign wrong pages.
 // Explicit `_slides_mapping.json` identities always win.
+// FEMA document whose legacy exporter shuffled 21 JPEG-backed PDF entries.
+// Verified against actual page footer/content in the original slide images.
+// Guard on both the original document identity and all archive members; never
+// apply this permutation to another lecture or an incompletely exported ZIP.
+const VERIFIED_LEGACY_FEMA_PAGES = [
+  ["4_asset_2.pdf",1], ["5_asset_3.pdf",2], ["6_asset_4.pdf",3],
+  ["7_asset_5.pdf",4], ["8_asset_6.pdf",11], ["9_asset_7.pdf",10],
+  ["10_asset_8.pdf",9], ["11_asset_9.pdf",8], ["12_asset_10.pdf",7],
+  ["13_asset_11.pdf",5], ["14_asset_12.pdf",6],
+  ["15_asset_13.pdf",12], ["16_asset_14.pdf",13],
+  ["17_asset_15.pdf",14], ["18_asset_16.pdf",15],
+  ["19_asset_17.pdf",16], ["20_asset_18.pdf",17],
+  ["21_asset_19.pdf",18], ["22_asset_20.pdf",19],
+  ["23_asset_21.pdf",20], ["24_asset_22.pdf",21]
+];
+function restoreVerifiedLegacyFemaPages(entries, events, images) {
+  const targetSource =
+    "https://uadoc.uacdn.net/common/dpi8fk991c/17744984916c998s.pdf";
+  const sources = new Set(events.filter(e =>
+    e.plugin === "dcn" && e.data?.e === "as").map(e =>
+    pdfSource(e.data?.u)).filter(Boolean));
+  if (sources.size !== 1 || !sources.has(targetSource)) {
+    return { active: false, mapped: 0 };
+  }
+  const zipPages = entries.filter(e =>
+    /^\d+_asset_\d+\.pdf$/i.test(String(e.original_name || "")));
+  const byName = new Map(zipPages.map(e => [
+    String(e.original_name).toLowerCase(), e
+  ]));
+  if (zipPages.length !== VERIFIED_LEGACY_FEMA_PAGES.length ||
+      VERIFIED_LEGACY_FEMA_PAGES.some(([name]) => !byName.has(name))) {
+    return { active: false, mapped: 0 };
+  }
+  // Avoid partial remaps: require all 21 decoded images before modifying.
+  const pairs = VERIFIED_LEGACY_FEMA_PAGES.map(([name, page]) => {
+    const entry = byName.get(name);
+    return { page, image: images.get(String(entry.name || "").toLowerCase()) };
+  });
+  if (pairs.some(item => !item.image)) return { active: false, mapped: 0 };
+  for (const { page, image } of pairs) {
+    images.set(`${targetSource}?page=${page}`, image);
+  }
+  return { active: true, mapped: pairs.length };
+}
+
 function inferCompletePdfBatches(entries, events, images) {
   const pdfRuns = [];
   const seen = new Set();
@@ -786,6 +831,13 @@ export default function SyncedBoard({
           console.info("Legacy PDF batch asset mapping (inferred, not verified)", {
             lectureId, ...inferred
           });
+        }
+
+        // Source-specific verified permutation takes precedence over the
+        // generic ordinal inference, which is incorrect for this archive.
+        const femaRestore = restoreVerifiedLegacyFemaPages(entries, events, images);
+        if (femaRestore.active) {
+          console.info("Verified FEMA legacy page permutation restored", femaRestore);
         }
 
         // Old ZIPs can have generated extra_001.jpg names instead of the
