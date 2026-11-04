@@ -304,15 +304,22 @@ function createEngine(events, images, resolveAssetKey = assetKey) {
       reset();
     }
 
+    // Replay in bounded slices. A backwards seek previously processed up to
+    // 20,000 board events synchronously and froze the video UI thread.
+    let processed = 0;
+    const limit = 650;
     while (
       pos < events.length &&
-      Number(events[pos].p_time) <= target
+      Number(events[pos].p_time) <= target &&
+      processed < limit
     ) {
       process(events[pos]);
       pos++;
+      processed++;
     }
 
     previous = t;
+    return pos >= events.length || Number(events[pos].p_time) > target;
   }
 
   function render(ctx, showAnnotations = true) {
@@ -405,11 +412,13 @@ export default function SyncedBoard({
   playbackUrl,
   videoRef,
   onReady,
+  onSyncingChange,
   showAnnotations = true,
 }) {
   const canvasRef = useRef(null);
   const engineRef = useRef(null);
   const readyRef = useRef(onReady);
+  const syncingRef = useRef(onSyncingChange);
   const annotationsRef = useRef(showAnnotations);
 
   useEffect(() => {
@@ -418,7 +427,8 @@ export default function SyncedBoard({
 
   useEffect(() => {
     readyRef.current = onReady;
-  }, [onReady]);
+    syncingRef.current = onSyncingChange;
+  }, [onReady, onSyncingChange]);
 
   useEffect(() => {
     let cancelled = false;
@@ -426,6 +436,7 @@ export default function SyncedBoard({
 
     engineRef.current = null;
     readyRef.current?.(false);
+    syncingRef.current?.(false);
 
     async function setup() {
       if (!lectureId || !playbackUrl) return;
@@ -583,21 +594,31 @@ export default function SyncedBoard({
         window.__lectureBoardState = () => engineRef.current?.inspect() || null;
 
         const video = videoRef?.current;
-        engine.advance(video?.currentTime || 0);
-        engine.render(ctx, annotationsRef.current);
+        const initialDone = engine.advance(video?.currentTime || 0);
+        if (initialDone) engine.render(ctx, annotationsRef.current);
+        else ctx.clearRect(0, 0, W, H);
+        syncingRef.current?.(!initialDone);
 
         readyRef.current?.(true);
 
+        let lastBoardComplete = initialDone;
         function tick() {
           if (cancelled) return;
 
           const currentVideo = videoRef?.current;
 
           if (currentVideo && engineRef.current) {
-            engineRef.current.advance(
-              currentVideo.currentTime || 0
-            );
-            engineRef.current.render(ctx, annotationsRef.current);
+            const done = engineRef.current.advance(currentVideo.currentTime || 0);
+            // Never display an intermediate/incorrect board page during a seek.
+            // The video UI remains responsive while the timeline is rebuilt.
+            if (!done && lastBoardComplete) {
+              ctx.clearRect(0, 0, W, H);
+              ctx.fillStyle = "#15181f";
+              ctx.fillRect(0, 0, W, H);
+            }
+            if (done !== lastBoardComplete) syncingRef.current?.(!done);
+            lastBoardComplete = done;
+            if (done) engineRef.current.render(ctx, annotationsRef.current);
           }
 
           frame = requestAnimationFrame(tick);
@@ -616,6 +637,7 @@ export default function SyncedBoard({
       cancelled = true;
       cancelAnimationFrame(frame);
       engineRef.current = null;
+      syncingRef.current?.(false);
       delete window.__lectureBoardState;
     };
   }, [lectureId, playbackUrl, videoRef]);

@@ -52,6 +52,9 @@ export default function CustomVideoPlayer({
 
   const [playing, setPlaying] = useState(false);
   const [boardReady, setBoardReady] = useState(false);
+  const [boardSyncing, setBoardSyncing] = useState(false);
+  const [videoBuffering, setVideoBuffering] = useState(false);
+  const wasPlayingOnSeekRef = useRef(false);
   // A few source videos contain the whole screen rather than teacher-only
   // footage. Allow the learner to switch without losing playback position.
   const [boardMode, setBoardMode] = useState(true);
@@ -206,6 +209,9 @@ export default function CustomVideoPlayer({
     setCurrent(0);
     setSpeed(1);
     setMessage("");
+    setVideoBuffering(false);
+    setBoardSyncing(false);
+    wasPlayingOnSeekRef.current = false;
   }, [lectureId, restoreLayout]);
 
   function togglePlay() {
@@ -254,6 +260,8 @@ export default function CustomVideoPlayer({
     const target = Number(value);
 
     if (Number.isFinite(target)) {
+      wasPlayingOnSeekRef.current = !el.paused;
+      setVideoBuffering(true);
       el.currentTime = target;
       setCurrent(target);
     }
@@ -388,6 +396,7 @@ export default function CustomVideoPlayer({
             playbackUrl={src}
             videoRef={videoRef || fallbackRef}
             onReady={setBoardReady}
+            onSyncingChange={setBoardSyncing}
             showAnnotations={showAnnotations}
           />
         )}
@@ -493,6 +502,23 @@ export default function CustomVideoPlayer({
             setCurrent(event.currentTarget.currentTime);
             onTimeUpdate?.(event);
           }}
+          onSeeking={() => {
+            setVideoBuffering(true);
+          }}
+          onSeeked={(event) => {
+            const el = event.currentTarget;
+            if (wasPlayingOnSeekRef.current && el.paused) {
+              el.play().catch(() => {});
+            }
+            wasPlayingOnSeekRef.current = false;
+            if (el.paused && el.readyState >= 2) setVideoBuffering(false);
+          }}
+          onWaiting={() => setVideoBuffering(true)}
+          onStalled={() => setVideoBuffering(true)}
+          onCanPlay={(event) => {
+            if (event.currentTarget.paused) setVideoBuffering(false);
+          }}
+          onPlaying={() => setVideoBuffering(false)}
           onPlay={() => {
             setPlaying(true);
             scheduleHide();
@@ -503,6 +529,7 @@ export default function CustomVideoPlayer({
             onPause?.(event);
           }}
           onEnded={(event) => {
+            setVideoBuffering(false);
             setPlaying(false);
             setControlsVisible(true);
             onEnded?.(event);
@@ -591,6 +618,30 @@ export default function CustomVideoPlayer({
           }}
         />
 
+
+        {(videoBuffering || (boardDisplayed && boardSyncing)) && (
+          <div
+            role="status"
+            aria-live="polite"
+            style={{
+              position: "absolute", inset: 0, zIndex: 10,
+              display: "flex", justifyContent: "center", alignItems: "center",
+              pointerEvents: "none", background: "rgba(0,0,0,.23)",
+              color: "#fff", fontSize: 13, fontWeight: 600,
+              textShadow: "0 1px 4px #000"
+            }}
+          >
+            <div style={{display:"flex", flexDirection:"column", alignItems:"center", gap:10}}>
+              <div className="unac-seek-spinner" style={{
+                width: 33, height: 33, borderRadius:"50%",
+                border: "3px solid rgba(255,255,255,.35)",
+                borderTopColor: "#fff", animation:"unac-seek-spin .75s linear infinite"
+              }} />
+              <span>{videoBuffering ? "Loading video..." : "Syncing board..."}</span>
+            </div>
+            <style>{`@keyframes unac-seek-spin { to { transform: rotate(360deg); } }`}</style>
+          </div>
+        )}
 
         {/* SEEK_OVERLAY_V1 */}
         {controlsVisible && (

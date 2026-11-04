@@ -1,0 +1,24 @@
+Frontend targeted patch — 2026-11-04
+
+Changed only:
+ - components/CustomVideoPlayer.jsx
+ - components/SyncedBoard.jsx
+
+Player:
+ - Visible loading spinner during seeking/waiting/stalled, including paused seeks.
+ - Seeked/canplay/playing transitions clear the loader when appropriate.
+ - Preserve play state for seeks initiated by the player's seek bar.
+ - Board timeline rebuilding shows a separate "Syncing board..." indicator.
+
+Board:
+ - Replays up to 650 events/frame instead of freezing main UI thread on a seek with 20k events.
+ - Avoids drawing intermediate board snapshots while replay catches up.
+ - Preserves original asset and event order; NO speculative slide offset applied.
+
+Important limitation: This does not prove or automatically repair the FEMA-5 image mismatch at 51:00.
+The legacy ZIP contains 4 slide images and 4 extras while the source Board JSON
+references many original assets. Without a verified URL->image mapping or original
+complete slide assets, guessing can make the wrong page show. The change fixes
+seek responsiveness/visible loading, not the unavailable asset mapping.
+
+Deployment: redeploy the updated frontend to Vercel. No backend restart necessary.
